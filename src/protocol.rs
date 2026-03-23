@@ -1,34 +1,40 @@
-/// Razer HID report: always 90 bytes.
+/// Razer BlackShark V3 Pro HID report: 64 bytes.
 ///
-/// Layout (from usbmon captures of other Razer devices — headset specifics TBD):
-///   [0]     Report ID       (0x00)
-///   [1]     Status          (0x00 = new cmd, 0x02 = busy, 0x01 = ok, 0x03 = fail, 0x04 = timeout)
-///   [2]     Transaction ID  (arbitrary; echo'd back in response)
-///   [3..4]  Remaining pkts  (0x00 0x00 for single-packet)
-///   [5]     Protocol type   (0x00)
-///   [6]     Data size       (number of meaningful argument bytes)
-///   [7]     Command class
-///   [8]     Command ID
-///   [9..87] Arguments
-///   [88]    CRC             (XOR of bytes [2..87])
-///   [89]    Reserved        (0x00)
-pub const REPORT_LEN: usize = 90;
+/// Layout (confirmed via usbmon capture with Razer Synapse on Windows):
+///   [0]     Report ID       (0x02)
+///   [1]     Status          (0x00 = new cmd; 0x02 = ok in response)
+///   [2]     Transaction ID  (arbitrary; echoed back in response)
+///   [3..8]  Padding/flags   (0x00 0x00 0x00 0x00 0x00 0x80)
+///   [9]     Flags           (0x80)
+///   [10]    Command class
+///   [11]    Sub             (0x00)
+///   [12]    Command ID
+///   [13..]  Arguments       (data_size − 3 bytes; data_size counts [10..12] + args)
+///   [62]    CRC             (XOR of bytes [0..61])
+///   [63]    Reserved        (0x00)
+pub const REPORT_LEN: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Report([u8; REPORT_LEN]);
 
 impl Report {
-    pub fn new(transaction_id: u8, class: u8, id: u8, data: &[u8]) -> Self {
-        assert!(data.len() <= 79, "argument data exceeds report capacity");
+    pub fn new(transaction_id: u8, class: u8, id: u8, args: &[u8]) -> Self {
+        // data_size counts the class byte, sub byte, command ID byte, and all arg bytes.
+        assert!(args.len() <= 49, "argument data exceeds report capacity");
 
         let mut buf = [0u8; REPORT_LEN];
-        buf[0] = 0x00; // report ID
+        buf[0] = 0x02; // report ID
+        buf[1] = 0x00; // status: new command
         buf[2] = transaction_id;
-        buf[6] = data.len() as u8;
-        buf[7] = class;
-        buf[8] = id;
-        buf[9..9 + data.len()].copy_from_slice(data);
-        buf[88] = crc(&buf);
+        // buf[3..8] = 0x00
+        buf[9]  = 0x80; // flags (constant, observed in all Synapse captures)
+        buf[10] = class;
+        buf[11] = 0x00; // sub (always 0 in captures)
+        buf[12] = id;
+        let data_size = 3 + args.len(); // class + sub + id + args
+        buf[6] = data_size as u8;
+        buf[13..13 + args.len()].copy_from_slice(args);
+        buf[62] = crc(&buf);
         Self(buf)
     }
 
@@ -44,14 +50,17 @@ impl Report {
         ResponseStatus::from(self.0[1])
     }
 
-    pub fn data(&self) -> &[u8] {
-        let len = self.0[6] as usize;
-        &self.0[9..9 + len.min(79)]
+    /// Argument bytes from the response (bytes [13..13+args_len]).
+    pub fn args(&self) -> &[u8] {
+        let data_size = self.0[6] as usize;
+        let args_len = data_size.saturating_sub(3); // subtract class + sub + id
+        &self.0[13..13 + args_len.min(49)]
     }
 }
 
+/// CRC is XOR of all bytes [0..61], stored at [62].
 fn crc(buf: &[u8; REPORT_LEN]) -> u8 {
-    buf[2..88].iter().fold(0u8, |acc, &b| acc ^ b)
+    buf[..62].iter().fold(0u8, |acc, &b| acc ^ b)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,34 +75,55 @@ pub enum ResponseStatus {
 impl From<u8> for ResponseStatus {
     fn from(b: u8) -> Self {
         match b {
-            0x01 => Self::Ok,
-            0x02 => Self::Busy,
-            0x03 => Self::Fail,
-            0x04 => Self::Timeout,
+            0x02 => Self::Ok,
+            0x03 => Self::Busy,
+            0x04 => Self::Fail,
+            0x05 => Self::Timeout,
             other => Self::Unknown(other),
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Known commands (placeholders until Windows capture fills these in)
+// Known commands (confirmed from usbmon captures with Razer Synapse)
 // ---------------------------------------------------------------------------
 
-/// Command class / ID pairs, named for what they likely are.
-/// Bytes marked TODO need to be confirmed from pcap.
 pub mod cmd {
-    /// Sidetone level (0x00–0x64).
-    /// Class/ID: TODO
-    pub const SIDETONE_CLASS: u8 = 0x00; // TODO
-    pub const SIDETONE_ID: u8 = 0x00; // TODO
+    /// Sidetone / mic monitoring level (0x00–0x0f, maps 1:1 to the UI range 0–15).
+    ///
+    /// Note: Synapse exposes a single "Sidetone" slider for this — there is no
+    /// separate mic monitoring control on the V3 Pro.
+    ///
+    /// GET: class=0x98, id=0x01, args=[0x01]
+    /// SET: class=0x99, id=0x01, args=[level]
+    pub const SIDETONE_GET_CLASS: u8 = 0x98;
+    pub const SIDETONE_SET_CLASS: u8 = 0x99;
+    pub const SIDETONE_ID: u8 = 0x01;
+    pub const SIDETONE_GET_ARG: u8 = 0x01;
+    pub const SIDETONE_MAX: u8 = 0x0f;
 
-    /// Battery level query.
-    /// Class/ID: TODO
-    pub const BATTERY_CLASS: u8 = 0x00; // TODO
-    pub const BATTERY_ID: u8 = 0x00; // TODO
+    /// EQ preset activation — 5-command sequence per preset switch.
+    /// Preset index 0x00–0x04 in args[0].
+    /// TODO: document full EQ band encoding once implemented.
+    pub const EQ_STATE_CLASS_GET: u8 = 0xe1;
+    pub const EQ_STATE_CLASS_SET: u8 = 0xe1;
+    pub const EQ_STATE_ID: u8 = 0x01;
+    pub const EQ_BANDS_CLASS: u8 = 0x95;
+    pub const EQ_BANDS_ID: u8 = 0x0b;
+    pub const EQ_META_CLASS: u8 = 0xe0;
+    pub const EQ_META_ID: u8 = 0x06;
+    pub const EQ_COMMIT_CLASS: u8 = 0xeb;
+    pub const EQ_COMMIT_ID: u8 = 0x0b;
 
-    /// Mic monitoring level (0x00–0x64).
-    /// Class/ID: TODO
-    pub const MIC_MONITOR_CLASS: u8 = 0x00; // TODO
-    pub const MIC_MONITOR_ID: u8 = 0x00; // TODO
+    /// Battery level query (confirmed from startup pcap).
+    ///
+    /// GET: class=0x21, id=0x00, args=[0x00]
+    /// Response args[0] = battery percentage (0–100 direct).
+    /// Response args[1] = charging flag (0x00 = not charging).
+    pub const BATTERY_CLASS: u8 = 0x21;
+    pub const BATTERY_ID: u8 = 0x00;
+
+    /// Read current sidetone level (startup/status read, not the slider SET path).
+    /// Response args[0] = current level (0–15).
+    pub const SIDETONE_READ_CLASS: u8 = 0x2c;
 }

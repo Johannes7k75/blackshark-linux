@@ -7,34 +7,46 @@
 /// UPower interface: org.freedesktop.UPower.Device
 /// Well-known path:  /org/freedesktop/UPower/devices/headset_blackshark_v3_pro
 ///
-/// TODO: implement after the HID battery polling command is confirmed from pcap.
+/// TODO: implement UPower D-Bus service once basic querying is confirmed working.
 
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
+
+use crate::device;
+use crate::protocol::{cmd, Report};
 
 /// Battery state as reported to UPower.
 #[derive(Debug, Clone, Copy)]
 pub struct BatteryState {
-    /// Percentage, 0.0–100.0.
-    pub percentage: f64,
+    /// Percentage, 0–100.
+    pub percentage: u8,
     /// Whether the device is currently on charge.
     pub charging: bool,
 }
 
 /// Query the headset for its current battery state.
 ///
-/// Stubbed out — the HID command bytes are not yet known.
-#[allow(unused_variables)]
+/// Protocol (confirmed from Synapse startup pcap):
+///   GET  cls=0x21, id=0x00, args=[0x00]
+///   Response args[0] = percentage (0–100 direct)
+///   Response args[1] = charging flag (0x00 = not charging)
 pub fn query(dev: &hidapi::HidDevice) -> Result<BatteryState> {
-    // TODO: once pcap reveals the battery request/response format:
-    //   1. Build a Report with cmd::BATTERY_CLASS / cmd::BATTERY_ID
-    //   2. Call device::send()
-    //   3. Parse percentage + charging flag from response.data()
-    anyhow::bail!("battery command not yet implemented (pending Windows pcap)")
+    let report = Report::new(0x60, cmd::BATTERY_CLASS, cmd::BATTERY_ID, &[0x00]);
+    let response = device::send(dev, &report).context("battery query failed")?;
+
+    let args = response.args();
+    if args.len() < 2 {
+        bail!("battery response too short: got {} bytes, expected 2", args.len());
+    }
+
+    Ok(BatteryState {
+        percentage: args[0],
+        charging:   args[1] != 0x00,
+    })
 }
 
 /// Publish battery state over D-Bus so UPower / GNOME can display it.
 ///
 /// TODO: implement the UPower Device interface with zbus.
 pub async fn publish_upower(_state: BatteryState) -> Result<()> {
-    anyhow::bail!("UPower D-Bus publishing not yet implemented")
+    bail!("UPower D-Bus publishing not yet implemented")
 }
