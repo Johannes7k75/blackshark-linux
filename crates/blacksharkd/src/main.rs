@@ -5,6 +5,7 @@ mod state;
 use std::time::Duration;
 
 use anyhow::Result;
+use tracing::{info, warn};
 use tokio::sync::{mpsc, watch};
 use zbus::ConnectionBuilder;
 
@@ -16,6 +17,12 @@ const DBUS_NAME: &str = "net.blackshark1";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "blacksharkd=info".into()),
+        )
+        .init();
     let (cmd_tx, cmd_rx) = mpsc::channel::<hid_actor::HidCommand>(32);
     let (state_tx, state_rx) = watch::channel(SharedState::default());
 
@@ -43,7 +50,7 @@ async fn main() -> Result<()> {
         .build()
         .await?;
 
-    eprintln!("blacksharkd running on {DBUS_NAME}");
+    info!("running on {DBUS_NAME}");
 
     // Watch for battery changes and emit the BatteryChanged signal.
     let mut watch_rx = state_rx;

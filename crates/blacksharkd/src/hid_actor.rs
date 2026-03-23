@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use hidapi::HidDevice;
 use tokio::sync::{mpsc, oneshot, watch};
+use tracing::{debug, info, warn};
 
 use blackshark_device as device;
 use blackshark_protocol::{cmd, Report};
@@ -57,13 +58,14 @@ fn run(mut rx: mpsc::Receiver<HidCommand>, state_tx: watch::Sender<SharedState>)
                         match query_battery(d) {
                             Ok(b) => {
                                 next_battery_poll = Instant::now() + BATTERY_POLL_INTERVAL;
+                                debug!(percentage = b.percentage, charging = b.charging, "battery poll");
                                 state_tx.send_modify(|s| {
                                     s.battery_pct = b.percentage;
                                     s.charging    = b.charging;
                                 });
                             }
                             Err(e) => {
-                                eprintln!("battery poll failed: {e}");
+                                warn!("battery poll failed: {e}");
                                 dev = None;
                                 state_tx.send_modify(|s| s.connected = false);
                             }
@@ -73,20 +75,30 @@ fn run(mut rx: mpsc::Receiver<HidCommand>, state_tx: watch::Sender<SharedState>)
             }
 
             HidCommand::SetSidetone { level, reply } => {
+                info!(level, "set_sidetone");
                 let result = with_dev(&mut dev, &state_tx, |d| set_sidetone(d, level));
-                if result.is_ok() {
-                    state_tx.send_modify(|s| s.sidetone = level);
+                match &result {
+                    Ok(()) => {
+                        info!(level, "set_sidetone ok");
+                        state_tx.send_modify(|s| s.sidetone = level);
+                    }
+                    Err(e) => warn!("set_sidetone failed: {e}"),
                 }
                 let _ = reply.send(result);
             }
 
             HidCommand::GetBattery { reply } => {
+                info!("get_battery");
                 let result = with_dev(&mut dev, &state_tx, query_battery);
-                if let Ok(ref b) = result {
-                    state_tx.send_modify(|s| {
-                        s.battery_pct = b.percentage;
-                        s.charging    = b.charging;
-                    });
+                match &result {
+                    Ok(b) => {
+                        info!(percentage = b.percentage, charging = b.charging, "get_battery ok");
+                        state_tx.send_modify(|s| {
+                            s.battery_pct = b.percentage;
+                            s.charging    = b.charging;
+                        });
+                    }
+                    Err(e) => warn!("get_battery failed: {e}"),
                 }
                 let _ = reply.send(result);
             }
@@ -101,10 +113,13 @@ fn run(mut rx: mpsc::Receiver<HidCommand>, state_tx: watch::Sender<SharedState>)
 fn try_open(state_tx: &watch::Sender<SharedState>) -> Option<HidDevice> {
     match device::open() {
         Ok(d) => {
-            eprintln!("headset connected");
-            // Read initial state from device.
             let battery  = query_battery(&d).ok();
             let sidetone = query_sidetone(&d).ok();
+            info!(
+                battery_pct = battery.as_ref().map(|b| b.percentage),
+                sidetone,
+                "headset connected"
+            );
             state_tx.send_modify(|s| {
                 s.connected = true;
                 if let Some(b) = battery  { s.battery_pct = b.percentage; s.charging = b.charging; }
@@ -112,10 +127,7 @@ fn try_open(state_tx: &watch::Sender<SharedState>) -> Option<HidDevice> {
             });
             Some(d)
         }
-        Err(e) => {
-            eprintln!("headset not found: {e}");
-            None
-        }
+        Err(_) => None,
     }
 }
 
@@ -133,7 +145,7 @@ where
         Some(d) => {
             let result = f(d);
             if result.is_err() {
-                eprintln!("headset disconnected");
+                warn!("headset disconnected");
                 *dev = None;
                 state_tx.send_modify(|s| s.connected = false);
             }

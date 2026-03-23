@@ -12,5 +12,7 @@ blackshark-protocol = { path = "../protocol" }
 blackshark-device = { path = "../device" }
 hidapi = "2"
 anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["full"] }
