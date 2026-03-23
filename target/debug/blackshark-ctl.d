@@ -1,1 +1,0 @@
-/home/matt/workspace/blackshark-ctl/target/debug/blackshark-ctl: /home/matt/workspace/blackshark-ctl/src/battery.rs /home/matt/workspace/blackshark-ctl/src/device.rs /home/matt/workspace/blackshark-ctl/src/main.rs /home/matt/workspace/blackshark-ctl/src/protocol.rs
