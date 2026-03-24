@@ -126,4 +126,31 @@ pub mod cmd {
     /// Read current sidetone level (startup/status read, not the slider SET path).
     /// Response args[0] = current level (0–15).
     pub const SIDETONE_READ_CLASS: u8 = 0x2c;
+
+    /// THX Spatial Audio toggle (confirmed from pcap).
+    ///
+    /// SET: class=0xdf, id=0x01, args=[mode, 0x00]
+    /// mode: 0x00 = Stereo, 0x01 = THX Spatial Audio
+    pub const THX_CLASS: u8 = 0xdf;
+    pub const THX_ID: u8 = 0x01;
+    pub const THX_STEREO: u8 = 0x00;
+    pub const THX_SPATIAL: u8 = 0x01;
+
+    /// Active Noise Cancellation toggle + level (confirmed from pcap).
+    ///
+    /// SET: class=0x92, id=0x02, args=[enabled, level, 0x00]
+    /// enabled: 0x00 = off, 0x01 = on
+    /// level: 0x01–0x04
+    pub const ANC_CLASS: u8 = 0x92;
+    pub const ANC_ID: u8 = 0x02;
+    pub const ANC_LEVEL_MIN: u8 = 1;
+    pub const ANC_LEVEL_MAX: u8 = 4;
+
+    /// Power savings / auto-shutoff timeout (confirmed from pcap).
+    ///
+    /// SET: class=0xac, id=0x01, args=[minutes, 0x00]
+    /// minutes: 0x00 = disabled, 0x0f = 15 min, 0x1e = 30 min,
+    ///          0x2d = 45 min, 0x3c = 60 min
+    pub const POWER_SAVINGS_CLASS: u8 = 0xac;
+    pub const POWER_SAVINGS_ID: u8 = 0x01;
 }

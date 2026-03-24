@@ -53,6 +53,36 @@ impl HeadsetInterface {
         Ok(())
     }
 
+    /// Enable or disable THX Spatial Audio. false = Stereo.
+    async fn set_thx(&self, enabled: bool) -> zbus::fdo::Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.send_cmd(HidCommand::SetThx { enabled, reply: tx }, rx).await?;
+        self.update_config(|c| c.thx_enabled = enabled);
+        Ok(())
+    }
+
+    /// Set Active Noise Cancellation. level = 1–4.
+    async fn set_anc(&self, enabled: bool, level: u8) -> zbus::fdo::Result<()> {
+        if level < 1 || level > 4 {
+            return Err(zbus::fdo::Error::InvalidArgs("level must be 1–4".into()));
+        }
+        let (tx, rx) = oneshot::channel();
+        self.send_cmd(HidCommand::SetAnc { enabled, level, reply: tx }, rx).await?;
+        self.update_config(|c| { c.anc_enabled = enabled; c.anc_level = level; });
+        Ok(())
+    }
+
+    /// Set power savings timeout. minutes = 0 (off), 15, 30, 45, or 60.
+    async fn set_power_savings(&self, minutes: u8) -> zbus::fdo::Result<()> {
+        if ![0u8, 15, 30, 45, 60].contains(&minutes) {
+            return Err(zbus::fdo::Error::InvalidArgs("minutes must be 0, 15, 30, 45, or 60".into()));
+        }
+        let (tx, rx) = oneshot::channel();
+        self.send_cmd(HidCommand::SetPowerSavings { minutes, reply: tx }, rx).await?;
+        self.update_config(|c| c.power_savings_minutes = minutes);
+        Ok(())
+    }
+
     /// Returns (percentage, charging).
     async fn get_battery(&self) -> zbus::fdo::Result<(u8, bool)> {
         let (tx, rx) = oneshot::channel::<anyhow::Result<BatteryState>>();
@@ -76,6 +106,26 @@ impl HeadsetInterface {
     #[zbus(property)]
     async fn sidetone(&self) -> u8 {
         self.state_rx.borrow().sidetone
+    }
+
+    #[zbus(property)]
+    async fn thx_enabled(&self) -> bool {
+        self.state_rx.borrow().thx_enabled
+    }
+
+    #[zbus(property)]
+    async fn anc_enabled(&self) -> bool {
+        self.state_rx.borrow().anc_enabled
+    }
+
+    #[zbus(property)]
+    async fn anc_level(&self) -> u8 {
+        self.state_rx.borrow().anc_level
+    }
+
+    #[zbus(property)]
+    async fn power_savings_minutes(&self) -> u8 {
+        self.state_rx.borrow().power_savings_minutes
     }
 
     /// Emitted when the battery level changes.

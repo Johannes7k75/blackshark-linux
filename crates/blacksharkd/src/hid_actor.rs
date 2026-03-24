@@ -21,8 +21,11 @@ pub struct BatteryState {
 }
 
 pub enum HidCommand {
-    SetSidetone { level: u8, reply: oneshot::Sender<Result<()>> },
-    GetBattery  { reply: oneshot::Sender<Result<BatteryState>> },
+    SetSidetone     { level: u8,             reply: oneshot::Sender<Result<()>> },
+    GetBattery      {                         reply: oneshot::Sender<Result<BatteryState>> },
+    SetThx          { enabled: bool,          reply: oneshot::Sender<Result<()>> },
+    SetAnc          { enabled: bool, level: u8, reply: oneshot::Sender<Result<()>> },
+    SetPowerSavings { minutes: u8,            reply: oneshot::Sender<Result<()>> },
     /// Sent when config changes — restores all settings to the device.
     ApplyConfig { config: Config },
     /// Periodic wakeup sent by a tokio timer — drives reconnect + battery poll.
@@ -90,6 +93,45 @@ fn run(mut rx: mpsc::Receiver<HidCommand>, state_tx: watch::Sender<SharedState>,
                 let _ = reply.send(result);
             }
 
+            HidCommand::SetThx { enabled, reply } => {
+                info!(enabled, "set_thx");
+                let result = with_dev(&mut dev, &state_tx, |d| set_thx(d, enabled));
+                match &result {
+                    Ok(()) => {
+                        info!(enabled, "set_thx ok");
+                        state_tx.send_modify(|s| s.thx_enabled = enabled);
+                    }
+                    Err(e) => warn!("set_thx failed: {e}"),
+                }
+                let _ = reply.send(result);
+            }
+
+            HidCommand::SetAnc { enabled, level, reply } => {
+                info!(enabled, level, "set_anc");
+                let result = with_dev(&mut dev, &state_tx, |d| set_anc(d, enabled, level));
+                match &result {
+                    Ok(()) => {
+                        info!(enabled, level, "set_anc ok");
+                        state_tx.send_modify(|s| { s.anc_enabled = enabled; s.anc_level = level; });
+                    }
+                    Err(e) => warn!("set_anc failed: {e}"),
+                }
+                let _ = reply.send(result);
+            }
+
+            HidCommand::SetPowerSavings { minutes, reply } => {
+                info!(minutes, "set_power_savings");
+                let result = with_dev(&mut dev, &state_tx, |d| set_power_savings(d, minutes));
+                match &result {
+                    Ok(()) => {
+                        info!(minutes, "set_power_savings ok");
+                        state_tx.send_modify(|s| s.power_savings_minutes = minutes);
+                    }
+                    Err(e) => warn!("set_power_savings failed: {e}"),
+                }
+                let _ = reply.send(result);
+            }
+
             HidCommand::GetBattery { reply } => {
                 info!("get_battery");
                 let result = with_dev(&mut dev, &state_tx, query_battery);
@@ -147,13 +189,26 @@ fn try_open(state_tx: &watch::Sender<SharedState>, config: Option<&Config>) -> O
 /// Apply all config values to the device. Logs but does not fail on errors —
 /// best-effort restore so a single bad command doesn't block the rest.
 fn restore_config(dev: &HidDevice, config: &Config) {
-    info!(sidetone = config.sidetone, "restoring config to device");
+    info!(
+        sidetone = config.sidetone,
+        thx = config.thx_enabled,
+        anc = config.anc_enabled,
+        power_savings = config.power_savings_minutes,
+        "restoring config to device"
+    );
 
     if let Err(e) = set_sidetone(dev, config.sidetone) {
         warn!("restore sidetone failed: {e}");
     }
-    // Additional settings (EQ, THX, ANC, power savings) will be added here
-    // as those commands are implemented.
+    if let Err(e) = set_thx(dev, config.thx_enabled) {
+        warn!("restore thx failed: {e}");
+    }
+    if let Err(e) = set_anc(dev, config.anc_enabled, config.anc_level) {
+        warn!("restore anc failed: {e}");
+    }
+    if let Err(e) = set_power_savings(dev, config.power_savings_minutes) {
+        warn!("restore power_savings failed: {e}");
+    }
 }
 
 /// Run `f` with the current device, clearing it on I/O failure.
@@ -197,6 +252,28 @@ fn query_battery(dev: &HidDevice) -> Result<BatteryState> {
     let args     = response.args();
     anyhow::ensure!(args.len() >= 2, "battery response too short");
     Ok(BatteryState { percentage: args[0], charging: args[1] != 0x00 })
+}
+
+fn set_thx(dev: &HidDevice, enabled: bool) -> Result<()> {
+    let mode = if enabled { cmd::THX_SPATIAL } else { cmd::THX_STEREO };
+    let report = Report::new(0x60, cmd::THX_CLASS, cmd::THX_ID, &[mode, 0x00]);
+    device::send(dev, &report)?;
+    Ok(())
+}
+
+fn set_anc(dev: &HidDevice, enabled: bool, level: u8) -> Result<()> {
+    let level = level.clamp(cmd::ANC_LEVEL_MIN, cmd::ANC_LEVEL_MAX);
+    let report = Report::new(0x60, cmd::ANC_CLASS, cmd::ANC_ID,
+                             &[enabled as u8, level, 0x00]);
+    device::send(dev, &report)?;
+    Ok(())
+}
+
+fn set_power_savings(dev: &HidDevice, minutes: u8) -> Result<()> {
+    let report = Report::new(0x60, cmd::POWER_SAVINGS_CLASS, cmd::POWER_SAVINGS_ID,
+                             &[minutes, 0x00]);
+    device::send(dev, &report)?;
+    Ok(())
 }
 
 fn query_sidetone(dev: &HidDevice) -> Result<u8> {

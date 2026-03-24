@@ -14,19 +14,19 @@ pub struct Config {
     pub eq_preset: u8,
     pub thx_enabled: bool,
     pub anc_enabled: bool,
-    pub anc_level: u8,
-    pub power_savings_minutes: u8,
+    pub anc_level: u8,              // 1–4
+    pub power_savings_minutes: u8,  // 0=off, 15/30/45/60
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            sidetone: 0,
-            eq_preset: 0,
-            thx_enabled: false,
-            anc_enabled: false,
-            anc_level: 1,
-            power_savings_minutes: 0,
+            sidetone:               0,
+            eq_preset:              0,
+            thx_enabled:            false,
+            anc_enabled:            false,
+            anc_level:              1,
+            power_savings_minutes:  0,
         }
     }
 }

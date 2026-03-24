@@ -22,10 +22,38 @@ enum Command {
     },
     /// Query battery level
     Battery,
+    /// Toggle THX Spatial Audio (on/off)
+    Thx {
+        #[arg(value_name = "on|off", value_parser = parse_bool)]
+        enabled: bool,
+    },
+    /// Set Active Noise Cancellation
+    Anc {
+        #[arg(value_name = "on|off", value_parser = parse_bool)]
+        enabled: bool,
+        /// ANC strength level (1–4)
+        #[arg(value_name = "LEVEL", default_value = "4",
+              value_parser = clap::value_parser!(u8).range(1..=4))]
+        level: u8,
+    },
+    /// Set power savings timeout
+    PowerSavings {
+        /// Minutes before auto-shutoff (0=off, 15, 30, 45, 60)
+        #[arg(value_name = "MINUTES", value_parser = clap::builder::PossibleValuesParser::new(["0","15","30","45","60"]))]
+        minutes: String,
+    },
     /// Print full device status as JSON (useful for waybar / scripts)
     Status,
     /// Subscribe to all device signals and print changes as they arrive
     Monitor,
+}
+
+fn parse_bool(s: &str) -> Result<bool, String> {
+    match s {
+        "on" | "true" | "1"  => Ok(true),
+        "off" | "false" | "0" => Ok(false),
+        _ => Err(format!("expected on/off, got '{s}'")),
+    }
 }
 
 #[tokio::main]
@@ -49,6 +77,19 @@ async fn main() -> Result<()> {
             let charging = if charging { " (charging)" } else { "" };
             println!("battery: {pct}%{charging}");
         }
+        Command::Thx { enabled } => {
+            proxy.set_thx(enabled).await?;
+            println!("THX Spatial: {}", if enabled { "on" } else { "off" });
+        }
+        Command::Anc { enabled, level } => {
+            proxy.set_anc(enabled, level).await?;
+            println!("ANC: {} (level {level})", if enabled { "on" } else { "off" });
+        }
+        Command::PowerSavings { minutes } => {
+            let m: u8 = minutes.parse().unwrap();
+            proxy.set_power_savings(m).await?;
+            println!("power savings: {}", if m == 0 { "off".to_string() } else { format!("{m} min") });
+        }
         Command::Status => cmd_status(&proxy).await?,
         Command::Monitor => cmd_monitor(&proxy).await?,
     }
@@ -65,13 +106,21 @@ struct Status {
     connected: bool,
     battery_percentage: u8,
     sidetone: u8,
+    thx_enabled: bool,
+    anc_enabled: bool,
+    anc_level: u8,
+    power_savings_minutes: u8,
 }
 
 async fn cmd_status(proxy: &HeadsetProxy<'_>) -> Result<()> {
     let status = Status {
-        connected:          proxy.connected().await?,
-        battery_percentage: proxy.battery_percentage().await?,
-        sidetone:           proxy.sidetone().await?,
+        connected:             proxy.connected().await?,
+        battery_percentage:    proxy.battery_percentage().await?,
+        sidetone:              proxy.sidetone().await?,
+        thx_enabled:           proxy.thx_enabled().await?,
+        anc_enabled:           proxy.anc_enabled().await?,
+        anc_level:             proxy.anc_level().await?,
+        power_savings_minutes: proxy.power_savings_minutes().await?,
     };
     println!("{}", serde_json::to_string_pretty(&status)?);
     Ok(())
