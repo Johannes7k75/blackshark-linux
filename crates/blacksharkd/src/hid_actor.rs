@@ -50,14 +50,18 @@ pub fn spawn(rx: mpsc::Receiver<HidCommand>, state_tx: watch::Sender<SharedState
 }
 
 fn run(mut rx: mpsc::Receiver<HidCommand>, state_tx: watch::Sender<SharedState>, initial_config: Config) {
-    let mut dev: Option<HidDevice> = try_open(&state_tx, Some(&initial_config));
+    let mut dev: Option<HidDevice> = try_open();
     let mut next_battery_poll = Instant::now(); // poll immediately on first tick
+    let mut device_ready = false; // true after first successful battery poll
 
     while let Some(cmd) = rx.blocking_recv() {
         match cmd {
             HidCommand::Tick => {
                 if dev.is_none() {
-                    dev = try_open(&state_tx, None);
+                    if let Some(d) = try_open() {
+                        dev = Some(d);
+                        device_ready = false;
+                    }
                 }
                 if Instant::now() >= next_battery_poll {
                     if let Some(d) = &dev {
@@ -65,15 +69,34 @@ fn run(mut rx: mpsc::Receiver<HidCommand>, state_tx: watch::Sender<SharedState>,
                             Ok(b) => {
                                 next_battery_poll = Instant::now() + BATTERY_POLL_INTERVAL;
                                 debug!(percentage = b.percentage, charging = b.charging, "battery poll");
-                                state_tx.send_modify(|s| {
-                                    s.battery_pct = b.percentage;
-                                    s.charging    = b.charging;
-                                });
+                                if !device_ready {
+                                    // First successful battery poll = wireless link established.
+                                    device_ready = true;
+                                    let sidetone = query_sidetone(d).ok();
+                                    info!(percentage = b.percentage, sidetone, "headset connected");
+                                    state_tx.send_modify(|s| {
+                                        s.connected   = true;
+                                        s.battery_pct = b.percentage;
+                                        s.charging    = b.charging;
+                                        if let Some(v) = sidetone { s.sidetone = v; }
+                                    });
+                                    restore_config(d, &initial_config);
+                                } else {
+                                    state_tx.send_modify(|s| {
+                                        s.battery_pct = b.percentage;
+                                        s.charging    = b.charging;
+                                    });
+                                }
                             }
                             Err(e) => {
-                                warn!("battery poll failed: {e}");
-                                dev = None;
-                                state_tx.send_modify(|s| s.connected = false);
+                                if device_ready {
+                                    warn!("headset disconnected: {e}");
+                                    device_ready = false;
+                                    dev = None;
+                                    state_tx.send_modify(|s| s.connected = false);
+                                } else {
+                                    debug!("waiting for RF link: {e}");
+                                }
                             }
                         }
                     }
@@ -161,28 +184,35 @@ fn run(mut rx: mpsc::Receiver<HidCommand>, state_tx: watch::Sender<SharedState>,
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Send the initialization handshake that the Windows Razer driver issues on connect.
+///
+/// The dongle's HID config interface only becomes active once the 2.4GHz wireless
+/// link to the headset is established — typically 10–15 seconds after USB plug-in.
+/// Windows waits for this naturally (driver + Synapse startup takes that long).
+/// We must poll until the device responds before proceeding with any config commands.
+///
+/// Sequence observed in bare-metal Windows usbmon capture:
+///   1. cls=0x02, flag=0x00 — device capability query (response = device is ready)
+///   2. cls=0x2a, flag=0x00 — charging capability query
+///   Then normal queries follow.
+/// Placeholder — the RF link establishes automatically without init commands.
+/// Sending commands before the link is up pollutes the read buffer and causes
+/// subsequent battery reads to consume stale responses. We do nothing here and
+/// let the Tick's battery poll detect when the link is ready.
+fn init_session(_dev: &HidDevice) {}
+
 /// Open the device and optionally restore config immediately.
-fn try_open(state_tx: &watch::Sender<SharedState>, config: Option<&Config>) -> Option<HidDevice> {
+/// Open the hidraw device and fire the init handshake.
+/// Does NOT wait for the wireless RF link — that may take ~44s after a cold replug.
+/// The Tick handler will detect readiness via battery poll and restore config then.
+fn try_open() -> Option<HidDevice> {
     match device::open() {
+        Err(_) => None,
         Ok(d) => {
-            let battery  = query_battery(&d).ok();
-            let sidetone = query_sidetone(&d).ok();
-            info!(
-                battery_pct = battery.as_ref().map(|b| b.percentage),
-                sidetone,
-                "headset connected"
-            );
-            state_tx.send_modify(|s| {
-                s.connected = true;
-                if let Some(b) = &battery  { s.battery_pct = b.percentage; s.charging = b.charging; }
-                if let Some(v) = sidetone   { s.sidetone = v; }
-            });
-            if let Some(cfg) = config {
-                restore_config(&d, cfg);
-            }
+            init_session(&d);
+            info!("dongle opened, waiting for wireless link");
             Some(d)
         }
-        Err(_) => None,
     }
 }
 
@@ -200,15 +230,7 @@ fn restore_config(dev: &HidDevice, config: &Config) {
     if let Err(e) = set_sidetone(dev, config.sidetone) {
         warn!("restore sidetone failed: {e}");
     }
-    if let Err(e) = set_thx(dev, config.thx_enabled) {
-        warn!("restore thx failed: {e}");
-    }
-    if let Err(e) = set_anc(dev, config.anc_enabled, config.anc_level) {
-        warn!("restore anc failed: {e}");
-    }
-    if let Err(e) = set_power_savings(dev, config.power_savings_minutes) {
-        warn!("restore power_savings failed: {e}");
-    }
+    // TODO: restore THX/ANC/power_savings once confirmed they don't time out on restore
 }
 
 /// Run `f` with the current device, clearing it on I/O failure.

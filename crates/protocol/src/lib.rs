@@ -19,19 +19,23 @@ pub struct Report([u8; REPORT_LEN]);
 
 impl Report {
     pub fn new(transaction_id: u8, class: u8, id: u8, args: &[u8]) -> Self {
-        // data_size counts the class byte, sub byte, command ID byte, and all arg bytes.
+        Self::new_with_flags(transaction_id, 0x80, class, id, args)
+    }
+
+    /// Like `new` but with an explicit flags byte at position [9].
+    /// Most commands use flags=0x80. The session init handshake uses flags=0x00.
+    pub fn new_with_flags(transaction_id: u8, flags: u8, class: u8, id: u8, args: &[u8]) -> Self {
         assert!(args.len() <= 49, "argument data exceeds report capacity");
 
         let mut buf = [0u8; REPORT_LEN];
-        buf[0] = 0x02; // report ID
-        buf[1] = 0x00; // status: new command
+        buf[0] = 0x02;
+        buf[1] = 0x00;
         buf[2] = transaction_id;
-        // buf[3..8] = 0x00
-        buf[9]  = 0x80; // flags (constant, observed in all Synapse captures)
+        buf[9]  = flags;
         buf[10] = class;
-        buf[11] = 0x00; // sub (always 0 in captures)
+        buf[11] = 0x00;
         buf[12] = id;
-        let data_size = 3 + args.len(); // class + sub + id + args
+        let data_size = 3 + args.len();
         buf[6] = data_size as u8;
         buf[13..13 + args.len()].copy_from_slice(args);
         buf[62] = crc(&buf);
