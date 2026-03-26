@@ -1,0 +1,300 @@
+import { Button, VerticalBox, HorizontalBox, GroupBox, Slider,
+         Switch, ComboBox, ProgressIndicator, StandardButton,
+         Palette, ScrollView } from "std-widgets.slint";
+
+// ---------------------------------------------------------------------------
+// Sidebar tab button
+// ---------------------------------------------------------------------------
+
+component TabButton inherits Rectangle {
+    in property <string> label;
+    in property <bool>   active;
+    callback clicked;
+
+    background: active ? Palette.accent-background : transparent;
+    border-radius: 6px;
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    Text {
+        text: label;
+        color: active ? Palette.accent-foreground : Palette.foreground;
+        font-size: 13px;
+        font-weight: active ? 700 : 400;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+
+    height: 40px;
+}
+
+// ---------------------------------------------------------------------------
+// Device tab
+// ---------------------------------------------------------------------------
+
+component DeviceTab inherits VerticalBox {
+    in property <bool>   connected;
+    in property <int>    battery-pct;
+    in property <bool>   charging;
+    in property <bool>   thx-enabled;
+    in property <bool>   anc-enabled;
+    in property <int>    anc-level;
+    in property <int>    power-savings;
+
+    callback set-thx(bool);
+    callback set-anc(bool, int);
+    callback set-power-savings(int);
+
+    padding: 24px;
+    spacing: 16px;
+
+    // Connection + battery
+    GroupBox {
+        title: "Status";
+        VerticalBox {
+            spacing: 8px;
+            HorizontalBox {
+                Text { text: "Connection:"; color: Palette.foreground; font-weight: 600; }
+                Text {
+                    text: connected ? "Connected" : "Disconnected";
+                    color: connected ? #4caf50 : #f44336;
+                }
+            }
+            if connected: HorizontalBox {
+                Text { text: "Battery:"; color: Palette.foreground; font-weight: 600; }
+                ProgressIndicator {
+                    progress: battery-pct / 100.0;
+                    width: 120px;
+                }
+                Text {
+                    text: charging
+                        ? battery-pct + "% ⚡"
+                        : battery-pct + "%";
+                    color: Palette.foreground;
+                }
+            }
+        }
+    }
+
+    // Audio toggles
+    if connected: GroupBox {
+        title: "Audio";
+        VerticalBox {
+            spacing: 12px;
+            HorizontalBox {
+                Text { text: "THX Spatial Audio"; color: Palette.foreground; vertical-alignment: center; }
+                Switch {
+                    checked: thx-enabled;
+                    toggled => { set-thx(self.checked); }
+                }
+            }
+            HorizontalBox {
+                Text { text: "Active Noise Cancellation"; color: Palette.foreground; vertical-alignment: center; }
+                Switch {
+                    checked: anc-enabled;
+                    toggled => { set-anc(self.checked, anc-level); }
+                }
+            }
+            if anc-enabled: HorizontalBox {
+                Text { text: "ANC Level (1–4):"; color: Palette.foreground; vertical-alignment: center; }
+                Slider {
+                    minimum: 1;
+                    maximum: 4;
+                    value: anc-level;
+                    step: 1;
+                    changed(v) => { set-anc(true, round(v)); }
+                    width: 150px;
+                }
+                Text { text: anc-level; color: Palette.foreground; }
+            }
+        }
+    }
+
+    // Power savings
+    if connected: GroupBox {
+        title: "Power";
+        HorizontalBox {
+            Text { text: "Auto-shutoff:"; color: Palette.foreground; vertical-alignment: center; }
+            ComboBox {
+                model: ["Off", "15 min", "30 min", "45 min", "60 min"];
+                current-index: {
+                    power-savings == 0  ? 0 :
+                    power-savings == 15 ? 1 :
+                    power-savings == 30 ? 2 :
+                    power-savings == 45 ? 3 : 4
+                };
+                selected(s) => {
+                    set-power-savings(
+                        self.current-index == 0 ? 0  :
+                        self.current-index == 1 ? 15 :
+                        self.current-index == 2 ? 30 :
+                        self.current-index == 3 ? 45 : 60
+                    );
+                }
+            }
+        }
+    }
+
+    // Spacer
+    Rectangle { vertical-stretch: 1; }
+}
+
+// ---------------------------------------------------------------------------
+// Mic tab
+// ---------------------------------------------------------------------------
+
+component MicTab inherits VerticalBox {
+    in property <bool> connected;
+    in property <int>  sidetone;
+
+    callback set-sidetone(int);
+
+    padding: 24px;
+    spacing: 16px;
+
+    GroupBox {
+        title: "Sidetone";
+        VerticalBox {
+            spacing: 8px;
+            Text {
+                text: "Hear your own voice in the headset (0 = off, 15 = max)";
+                color: Palette.foreground;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+            HorizontalBox {
+                Text { text: "0"; color: Palette.foreground; }
+                Slider {
+                    enabled: connected;
+                    minimum: 0;
+                    maximum: 15;
+                    value: sidetone;
+                    step: 1;
+                    released(v) => { set-sidetone(round(v)); }
+                    horizontal-stretch: 1;
+                }
+                Text { text: "15"; color: Palette.foreground; }
+                Text { text: sidetone; color: Palette.accent-background; font-weight: 700; min-width: 24px; }
+            }
+        }
+    }
+
+    Rectangle { vertical-stretch: 1; }
+}
+
+// ---------------------------------------------------------------------------
+// Stub tab
+// ---------------------------------------------------------------------------
+
+component StubTab inherits VerticalBox {
+    in property <string> name;
+    padding: 24px;
+    Text {
+        text: name + " — coming soon";
+        color: Palette.foreground;
+        font-size: 16px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        vertical-stretch: 1;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Main window
+// ---------------------------------------------------------------------------
+
+export component MainWindow inherits Window {
+    title: "BlackShark V3 Pro";
+    min-width: 640px;
+    min-height: 480px;
+    preferred-width: 800px;
+    preferred-height: 540px;
+    background: Palette.background;
+
+    // State
+    in-out property <int>  active-tab: 0;
+    in property <bool>   connected;
+    in property <int>    battery-pct;
+    in property <bool>   charging;
+    in property <int>    sidetone;
+    in property <bool>   thx-enabled;
+    in property <bool>   anc-enabled;
+    in property <int>    anc-level;
+    in property <int>    power-savings;
+
+    // Callbacks → Rust
+    callback set-sidetone(int);
+    callback set-thx(bool);
+    callback set-anc(bool, int);
+    callback set-power-savings(int);
+
+    HorizontalBox {
+        padding: 0;
+        spacing: 0;
+
+        // Sidebar
+        Rectangle {
+            width: 160px;
+            background: Palette.alternate-background;
+
+            VerticalBox {
+                padding-top: 12px;
+                padding-bottom: 12px;
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 4px;
+                alignment: start;
+
+                Text {
+                    text: "BlackShark";
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: Palette.foreground;
+                    padding-bottom: 12px;
+                    padding-left: 8px;
+                }
+
+                TabButton { label: "Device";     active: active-tab == 0; clicked => { active-tab = 0; } }
+                TabButton { label: "Audio";      active: active-tab == 1; clicked => { active-tab = 1; } }
+                TabButton { label: "Mic";        active: active-tab == 2; clicked => { active-tab = 2; } }
+                TabButton { label: "Profiles";   active: active-tab == 3; clicked => { active-tab = 3; } }
+                TabButton { label: "Automation"; active: active-tab == 4; clicked => { active-tab = 4; } }
+                TabButton { label: "Settings";   active: active-tab == 5; clicked => { active-tab = 5; } }
+
+                Rectangle { vertical-stretch: 1; }
+            }
+        }
+
+        // Divider
+        Rectangle { width: 1px; background: Palette.border; }
+
+        // Content
+        if active-tab == 0: DeviceTab {
+            connected:     connected;
+            battery-pct:   battery-pct;
+            charging:      charging;
+            thx-enabled:   thx-enabled;
+            anc-enabled:   anc-enabled;
+            anc-level:     anc-level;
+            power-savings: power-savings;
+            set-thx(v)       => { set-thx(v); }
+            set-anc(e, l)    => { set-anc(e, l); }
+            set-power-savings(m) => { set-power-savings(m); }
+            horizontal-stretch: 1;
+        }
+        if active-tab == 1: StubTab { name: "Audio / EQ"; horizontal-stretch: 1; }
+        if active-tab == 2: MicTab {
+            connected: connected;
+            sidetone:  sidetone;
+            set-sidetone(v) => { set-sidetone(v); }
+            horizontal-stretch: 1;
+        }
+        if active-tab == 3: StubTab { name: "Profiles";   horizontal-stretch: 1; }
+        if active-tab == 4: StubTab { name: "Automation"; horizontal-stretch: 1; }
+        if active-tab == 5: StubTab { name: "Settings";   horizontal-stretch: 1; }
+    }
+}

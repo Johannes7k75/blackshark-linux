@@ -6,8 +6,11 @@ mod state;
 use std::time::Duration;
 
 use anyhow::Result;
+use std::collections::HashMap;
 use tokio::sync::{mpsc, watch};
 use tracing::{info, warn};
+use zbus::fdo::Properties;
+use zbus::zvariant::Value;
 use zbus::ConnectionBuilder;
 
 use config::Config;
@@ -100,32 +103,60 @@ async fn main() -> Result<()> {
 
     info!("running on {DBUS_NAME}");
 
-    // Watch for battery changes and emit the BatteryChanged signal.
+    // Watch state changes and emit D-Bus signals + PropertiesChanged.
     let mut watch_rx = state_rx;
     let conn2 = conn.clone();
     tokio::spawn(async move {
-        let mut last_pct = 255u8;
+        let mut prev = state::SharedState::default();
         loop {
             if watch_rx.changed().await.is_err() {
                 break;
             }
             let state = watch_rx.borrow().clone();
-            if state.connected && state.battery_pct != last_pct {
-                last_pct = state.battery_pct;
-                let iface_ref = conn2
-                    .object_server()
-                    .interface::<_, dbus::HeadsetInterface>(DBUS_PATH)
-                    .await;
-                if let Ok(iface_ref) = iface_ref {
-                    dbus::HeadsetInterface::battery_changed(
-                        iface_ref.signal_context(),
-                        state.battery_pct,
-                        state.charging,
-                    )
-                    .await
-                    .ok();
-                }
+            let iface_ref = conn2
+                .object_server()
+                .interface::<_, dbus::HeadsetInterface>(DBUS_PATH)
+                .await;
+            let Ok(iface_ref) = iface_ref else { continue };
+            let ctxt = iface_ref.signal_context();
+
+            // Battery signal
+            if state.connected && state.battery_pct != prev.battery_pct {
+                dbus::HeadsetInterface::battery_changed(
+                    ctxt, state.battery_pct, state.charging,
+                ).await.ok();
             }
+
+            // Emit PropertiesChanged for any state that changed.
+            // This drives receive_*_changed() streams in proxy subscribers (tray, GUI).
+            let mut changed: HashMap<&str, &Value<'_>> = HashMap::new();
+            // Build owned values first, then reference them
+            let v_connected   = Value::from(state.connected);
+            let v_battery     = Value::from(state.battery_pct);
+            let v_sidetone    = Value::from(state.sidetone);
+            let v_thx         = Value::from(state.thx_enabled);
+            let v_anc         = Value::from(state.anc_enabled);
+            let v_anc_level   = Value::from(state.anc_level);
+            let v_ps          = Value::from(state.power_savings_minutes);
+            if state.connected != prev.connected           { changed.insert("Connected",           &v_connected); }
+            if state.battery_pct != prev.battery_pct       { changed.insert("BatteryPercentage",    &v_battery); }
+            if state.sidetone != prev.sidetone             { changed.insert("Sidetone",             &v_sidetone); }
+            if state.thx_enabled != prev.thx_enabled       { changed.insert("ThxEnabled",           &v_thx); }
+            if state.anc_enabled != prev.anc_enabled       { changed.insert("AncEnabled",           &v_anc); }
+            if state.anc_level != prev.anc_level           { changed.insert("AncLevel",             &v_anc_level); }
+            if state.power_savings_minutes != prev.power_savings_minutes {
+                changed.insert("PowerSavingsMinutes", &v_ps);
+            }
+            if !changed.is_empty() {
+                Properties::properties_changed(
+                    ctxt,
+                    "net.blackshark1.Headset".try_into().unwrap(),
+                    &changed,
+                    &[],
+                ).await.ok();
+            }
+
+            prev = state;
         }
     });
 

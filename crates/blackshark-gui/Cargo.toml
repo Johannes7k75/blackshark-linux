@@ -1,0 +1,18 @@
+[package]
+name = "blackshark-gui"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "blackshark-gui"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+slint = "1"
+zbus = { version = "4", default-features = false, features = ["tokio"] }
+tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread", "sync"] }
+futures-util = "0.3"
+
+[build-dependencies]
+slint-build = "1"
