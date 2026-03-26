@@ -8,6 +8,13 @@
     default_path = "/net/blackshark1/Headset"
 )]
 pub trait Headset {
+    /// Set EQ preset (0–4).
+    fn set_eq(&self, preset: u8) -> zbus::Result<()>;
+
+    /// Current EQ preset.
+    #[zbus(property)]
+    fn eq_preset(&self) -> zbus::Result<u8>;
+
     /// Set sidetone level (0–15).
     fn set_sidetone(&self, level: u8) -> zbus::Result<()>;
 

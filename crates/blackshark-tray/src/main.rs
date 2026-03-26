@@ -12,11 +12,14 @@ use proxy::HeadsetProxy;
 // Shared state
 // ---------------------------------------------------------------------------
 
+const EQ_PRESET_NAMES: [&str; 5] = ["Flat", "Preset 1", "Preset 2", "Preset 3", "Preset 4"];
+
 #[derive(Clone, Debug, Default)]
 struct HeadsetState {
     connected:     bool,
     battery_pct:   u8,
     charging:      bool,
+    eq_preset:     u8,
     sidetone:      u8,
     thx_enabled:   bool,
     anc_enabled:   bool,
@@ -110,6 +113,29 @@ impl Tray for BlacksharkTray {
                     })
                     .collect(),
 
+                ..Default::default()
+            }));
+
+            // EQ preset submenu
+            let eq = s.eq_preset;
+            items.push(MenuItem::SubMenu(SubMenu {
+                label:   format!("EQ: {}", EQ_PRESET_NAMES.get(eq as usize).copied().unwrap_or("Custom")),
+                submenu: EQ_PRESET_NAMES.iter().enumerate().map(|(i, name)| {
+                    let i = i as u8;
+                    MenuItem::Standard(StandardItem {
+                        label:    if i == eq { format!("• {name}") } else { format!("  {name}") },
+                        activate: Box::new(move |tray: &mut Self| {
+                            tray.state.lock().unwrap().eq_preset = i;
+                            let conn = tray.conn.clone();
+                            tray.rt.spawn(async move {
+                                if let Ok(proxy) = HeadsetProxy::new(&conn).await {
+                                    let _ = proxy.set_eq(i).await;
+                                }
+                            });
+                        }),
+                        ..Default::default()
+                    })
+                }).collect(),
                 ..Default::default()
             }));
 
@@ -231,6 +257,7 @@ async fn main() -> Result<()> {
             s.connected = connected;
             if connected {
                 s.battery_pct   = proxy.battery_percentage().await.unwrap_or(0);
+                s.eq_preset     = proxy.eq_preset().await.unwrap_or(0);
                 s.sidetone      = proxy.sidetone().await.unwrap_or(0);
                 s.thx_enabled   = proxy.thx_enabled().await.unwrap_or(false);
                 s.anc_enabled   = proxy.anc_enabled().await.unwrap_or(false);
@@ -259,6 +286,7 @@ async fn main() -> Result<()> {
         let mut connected_stream = proxy.receive_connected_changed().await;
         let mut sidetone_stream  = proxy.receive_sidetone_changed().await;
         let mut thx_stream       = proxy.receive_thx_enabled_changed().await;
+        let mut eq_stream        = proxy.receive_eq_preset_changed().await;
         let mut anc_stream       = proxy.receive_anc_enabled_changed().await;
 
         loop {
@@ -289,7 +317,13 @@ async fn main() -> Result<()> {
                     }
                     handle.update(|_| {});
                 }
-                Some(change) = anc_stream.next() => {
+                Some(change) = eq_stream.next() => {
+                        if let Ok(val) = change.get().await {
+                            state2.lock().unwrap().eq_preset = val;
+                        }
+                        handle.update(|_| {});
+                    }
+                    Some(change) = anc_stream.next() => {
                     if let Ok(val) = change.get().await {
                         state2.lock().unwrap().anc_enabled = val;
                     }
