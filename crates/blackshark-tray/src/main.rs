@@ -129,20 +129,48 @@ impl Tray for BlacksharkTray {
                 ..Default::default()
             }));
 
-            // ANC toggle
+            // ANC submenu — toggle + level
             let anc     = s.anc_enabled;
-            let anc_lvl = s.anc_level;
-            items.push(MenuItem::Standard(StandardItem {
-                label:    format!("ANC: {}", if anc { format!("On ✓ (level {anc_lvl})") } else { "Off".into() }),
-                activate: Box::new(move |tray: &mut Self| {
-                    tray.state.lock().unwrap().anc_enabled = !anc;
-                    let conn = tray.conn.clone();
-                    tray.rt.spawn(async move {
-                        if let Ok(proxy) = HeadsetProxy::new(&conn).await {
-                            let _ = proxy.set_anc(!anc, anc_lvl).await;
-                        }
-                    });
+            let anc_lvl = s.anc_level.max(1);
+            let mut anc_submenu: Vec<MenuItem<Self>> = vec![
+                MenuItem::Standard(StandardItem {
+                    label:    if anc { "Enabled ✓".into() } else { "Disabled".into() },
+                    activate: Box::new(move |tray: &mut Self| {
+                        tray.state.lock().unwrap().anc_enabled = !anc;
+                        let conn = tray.conn.clone();
+                        tray.rt.spawn(async move {
+                            if let Ok(proxy) = HeadsetProxy::new(&conn).await {
+                                let _ = proxy.set_anc(!anc, anc_lvl).await;
+                            }
+                        });
+                    }),
+                    ..Default::default()
                 }),
+                MenuItem::Separator,
+            ];
+            for lvl in 1u8..=4 {
+                let label = format!("{} Level {lvl}", if lvl == anc_lvl && anc { "•" } else { " " });
+                anc_submenu.push(MenuItem::Standard(StandardItem {
+                    label,
+                    activate: Box::new(move |tray: &mut Self| {
+                        {
+                            let mut s = tray.state.lock().unwrap();
+                            s.anc_level   = lvl;
+                            s.anc_enabled = true;
+                        }
+                        let conn = tray.conn.clone();
+                        tray.rt.spawn(async move {
+                            if let Ok(proxy) = HeadsetProxy::new(&conn).await {
+                                let _ = proxy.set_anc(true, lvl).await;
+                            }
+                        });
+                    }),
+                    ..Default::default()
+                }));
+            }
+            items.push(MenuItem::SubMenu(SubMenu {
+                label:   format!("ANC: {}", if anc { format!("On (level {anc_lvl})") } else { "Off".into() }),
+                submenu: anc_submenu,
                 ..Default::default()
             }));
 
