@@ -91,6 +91,8 @@ async fn main() -> Result<()> {
             let mut sidetone_stream  = proxy.receive_sidetone_changed().await;
             let mut thx_stream       = proxy.receive_thx_enabled_changed().await;
             let mut anc_stream       = proxy.receive_anc_enabled_changed().await;
+        let mut anc_level_stream = proxy.receive_anc_level_changed().await;
+        let mut ps_stream        = proxy.receive_power_savings_minutes_changed().await;
 
             loop {
                 tokio::select! {
@@ -136,6 +138,22 @@ async fn main() -> Result<()> {
                             let w = window_weak.clone();
                             slint::invoke_from_event_loop(move || {
                                 if let Some(win) = w.upgrade() { win.set_anc_enabled(val); }
+                            }).ok();
+                        }
+                    }
+                    Some(change) = anc_level_stream.next() => {
+                        if let Ok(val) = change.get().await {
+                            let w = window_weak.clone();
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(win) = w.upgrade() { win.set_anc_level(val as i32); }
+                            }).ok();
+                        }
+                    }
+                    Some(change) = ps_stream.next() => {
+                        if let Ok(val) = change.get().await {
+                            let w = window_weak.clone();
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(win) = w.upgrade() { win.set_power_savings(val as i32); }
                             }).ok();
                         }
                     }
