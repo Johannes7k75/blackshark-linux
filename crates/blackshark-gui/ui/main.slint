@@ -169,6 +169,8 @@ component MicTab inherits ScrollView {
 
     callback set-sidetone(int);
 
+    property <int> live-sidetone: sidetone;
+
     VerticalBox {
     width: parent.viewport-width;
     padding: 24px;
@@ -192,12 +194,14 @@ component MicTab inherits ScrollView {
                     minimum: 0;
                     maximum: 15;
                     value: sidetone;
-                    step: 1;
-                    released(v) => { set-sidetone(round(v)); }
+                    changed(v) => {
+                        live-sidetone = round(v);
+                        set-sidetone(round(v));
+                    }
                     horizontal-stretch: 1;
                 }
                 Text { text: "15"; color: Palette.foreground; }
-                Text { text: sidetone; color: Palette.accent-background; font-weight: 700; min-width: 24px; }
+                Text { text: live-sidetone; color: Palette.accent-background; font-weight: 700; min-width: 24px; }
             }
         }
     }
