@@ -1,6 +1,6 @@
 mod pipewire;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -133,6 +133,47 @@ async fn main() -> Result<()> {
 
     // Initial daemon status.
     window.set_daemon_status(daemon_status().await.into());
+
+    // Tail daemon logs in the background.
+    {
+        let log_buffer: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+        let window_weak = window.as_weak();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut child = match tokio::process::Command::new("journalctl")
+                .args(["--user", "-u", "blacksharkd", "-f", "-n", "100", "--no-pager"])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(e) => { eprintln!("journalctl spawn failed: {e}"); return; }
+            };
+
+            let stdout = child.stdout.take().unwrap();
+            let mut lines = tokio::io::BufReader::new(stdout).lines();
+
+            while let Ok(Some(line)) = lines.next_line().await {
+                {
+                    let mut buf = log_buffer.lock().unwrap();
+                    buf.push_front(line);
+                    if buf.len() > 200 {
+                        buf.pop_back();
+                    }
+                }
+                let strings: Vec<String> = log_buffer.lock().unwrap().iter().cloned().collect();
+                let w = window_weak.clone();
+                slint::invoke_from_event_loop(move || {
+                    if let Some(win) = w.upgrade() {
+                        let items: Vec<LogLine> = strings.iter()
+                            .map(|s| LogLine { text: s.as_str().into() })
+                            .collect();
+                        win.set_log_lines(ModelRc::new(VecModel::from(items)));
+                    }
+                }).ok();
+            }
+        });
+    }
 
     // Wire up headset-control callbacks (go via D-Bus as before).
     {

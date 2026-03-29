@@ -2,6 +2,10 @@ import { Button, VerticalBox, HorizontalBox, GroupBox, Slider,
          Switch, ComboBox, ProgressIndicator, StandardButton,
          Palette, ScrollView, ListView } from "std-widgets.slint";
 
+export struct LogLine {
+    text: string,
+}
+
 export struct SinkInputRow {
     id: int,
     name: string,
@@ -417,8 +421,9 @@ component StubTab inherits VerticalBox {
 // ---------------------------------------------------------------------------
 
 component AdvancedTab inherits ScrollView {
-    in property <bool>   sinks-active;
-    in property <string> daemon-status;  // "active", "inactive", "failed", ...
+    in property <bool>                    sinks-active;
+    in property <string>                  daemon-status;  // "active", "inactive", "failed", ...
+    in property <[LogLine]>  log-lines;
 
     callback teardown-sinks();
     callback rebuild-sinks();
@@ -499,6 +504,20 @@ component AdvancedTab inherits ScrollView {
         }
     }
 
+    GroupBox {
+        title: "Daemon Logs (newest first)";
+        ListView {
+            height: 300px;
+            for line in log-lines: Text {
+                text: line.text;
+                font-family: "monospace";
+                font-size: 11px;
+                color: Palette.foreground;
+                overflow: elide;
+            }
+        }
+    }
+
     } // VerticalBox
 }
 
@@ -529,8 +548,9 @@ export component MainWindow inherits Window {
 
     in property <[SinkInputRow]> streams;
     in property <[RouteRule]>   rules;
-    in property <bool>          sinks-active;
-    in property <string>        daemon-status;
+    in property <bool>                    sinks-active;
+    in property <string>                  daemon-status;
+    in property <[LogLine]>  log-lines;
 
     // Callbacks → Rust
     callback set-eq(int);
@@ -631,6 +651,7 @@ export component MainWindow inherits Window {
         if active-tab == 6: AdvancedTab {
             sinks-active:     sinks-active;
             daemon-status:    daemon-status;
+            log-lines:        log-lines;
             teardown-sinks()  => { teardown-sinks(); }
             rebuild-sinks()   => { rebuild-sinks(); }
             start-daemon()    => { start-daemon(); }
