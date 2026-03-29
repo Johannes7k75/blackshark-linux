@@ -18,8 +18,6 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             use_cross: false
-          - target: aarch64-unknown-linux-gnu
-            use_cross: true
 
     steps:
       - uses: actions/checkout@v4
