@@ -89,6 +89,14 @@ Full settings panel. All changes are applied immediately via D-Bus and sync back
 
 ---
 
+## Screenshots
+
+![Device tab](assets/Device_page.png)
+
+![System tray](assets/tray_icon.png)
+
+---
+
 ## Architecture
 
 ```
