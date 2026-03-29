@@ -117,6 +117,7 @@ async fn main() -> Result<()> {
             let mut modules: Vec<u32> = Vec::new();
 
             async fn setup(modules: &mut Vec<u32>, mix: u8) {
+                pipewire::cleanup_stale_sinks().await;
                 let Some(headset_sink) = pipewire::find_headset_sink().await else {
                     warn!("could not find headset sink — game/chat mix unavailable");
                     return;

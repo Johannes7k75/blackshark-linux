@@ -51,6 +51,35 @@ pub async fn load_loopback(source_monitor: &str, sink: &str) -> Result<u32> {
     Ok(id)
 }
 
+/// Unload any leftover blackshark-game / blackshark-chat modules from a
+/// previous daemon run. Called once at startup before creating new sinks.
+pub async fn cleanup_stale_sinks() {
+    let output = match Command::new("pactl")
+        .args(["list", "short", "modules"])
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(_) => return,
+    };
+
+    let stdout = match String::from_utf8(output.stdout) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    for line in stdout.lines() {
+        if line.contains("blackshark-game") || line.contains("blackshark-chat") {
+            if let Some(id_str) = line.split_whitespace().next() {
+                if let Ok(id) = id_str.parse::<u32>() {
+                    info!("removing stale PipeWire module {id}");
+                    unload_module(id).await;
+                }
+            }
+        }
+    }
+}
+
 /// Find the real ALSA sink name for the BlackShark V3 Pro headset.
 ///
 /// Returns the sink name (e.g. `alsa_output.usb-Razer_Inc_BlackShark_V3_Pro_...`)
