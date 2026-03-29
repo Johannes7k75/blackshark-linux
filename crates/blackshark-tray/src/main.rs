@@ -279,6 +279,8 @@ async fn main() -> Result<()> {
         let mut thx_stream       = proxy.receive_thx_enabled_changed().await;
         let mut eq_stream        = proxy.receive_eq_preset_changed().await;
         let mut anc_stream       = proxy.receive_anc_enabled_changed().await;
+        let mut anc_level_stream = proxy.receive_anc_level_changed().await;
+        let mut ps_stream        = proxy.receive_power_savings_minutes_changed().await;
 
         loop {
             tokio::select! {
@@ -309,14 +311,26 @@ async fn main() -> Result<()> {
                     handle.update(|_| {});
                 }
                 Some(change) = eq_stream.next() => {
-                        if let Ok(val) = change.get().await {
-                            state2.lock().unwrap().eq_preset = val;
-                        }
-                        handle.update(|_| {});
+                    if let Ok(val) = change.get().await {
+                        state2.lock().unwrap().eq_preset = val;
                     }
-                    Some(change) = anc_stream.next() => {
+                    handle.update(|_| {});
+                }
+                Some(change) = anc_stream.next() => {
                     if let Ok(val) = change.get().await {
                         state2.lock().unwrap().anc_enabled = val;
+                    }
+                    handle.update(|_| {});
+                }
+                Some(change) = anc_level_stream.next() => {
+                    if let Ok(val) = change.get().await {
+                        state2.lock().unwrap().anc_level = val;
+                    }
+                    handle.update(|_| {});
+                }
+                Some(change) = ps_stream.next() => {
+                    if let Ok(val) = change.get().await {
+                        state2.lock().unwrap().power_savings = val;
                     }
                     handle.update(|_| {});
                 }
