@@ -551,16 +551,21 @@ async fn main() -> Result<()> {
         });
     }
 
-    // Advanced tab: manual sink rebuild.
+    // Advanced tab: manual sink rebuild (only when PipeWire feature is enabled).
     {
         let modules = modules.clone();
         let current_mix = current_mix.clone();
+        let pipewire_enabled = pipewire_enabled.clone();
         let window_weak = window.as_weak();
         window.on_rebuild_sinks(move || {
             let modules = modules.clone();
             let current_mix = current_mix.clone();
+            let pipewire_enabled = pipewire_enabled.clone();
             let window_weak = window_weak.clone();
             tokio::spawn(async move {
+                if !pipewire_enabled.load(Ordering::Relaxed) {
+                    return;
+                }
                 // Tear down any existing modules first.
                 let mods: Vec<u32> = modules.lock().unwrap().drain(..).collect();
                 for id in mods {
