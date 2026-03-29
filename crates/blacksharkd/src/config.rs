@@ -1,7 +1,25 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+
+/// Where an app's audio stream should be routed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AppRoute {
+    Game,
+    Chat,
+}
+
+impl AppRoute {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AppRoute::Game => "game",
+            AppRoute::Chat => "chat",
+        }
+    }
+}
 
 /// Persisted user configuration.
 ///
@@ -18,6 +36,9 @@ pub struct Config {
     pub power_savings_minutes: u8,  // 0=off, 15/30/45/60
     /// Game/chat crossfader: 0 = all chat, 50 = equal, 100 = all game.
     pub game_chat_mix: u8,
+    /// Per-app sink routing rules.  Key = app name, value = game or chat.
+    #[serde(default)]
+    pub app_routing: HashMap<String, AppRoute>,
 }
 
 impl Default for Config {
@@ -30,6 +51,7 @@ impl Default for Config {
             anc_level:              1,
             power_savings_minutes:  0,
             game_chat_mix:          50,
+            app_routing:            HashMap::new(),
         }
     }
 }

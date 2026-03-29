@@ -1,12 +1,57 @@
 mod proxy;
 
 use anyhow::Result;
-use slint::ComponentHandle;
+use slint::{ComponentHandle, ModelRc, VecModel};
 use zbus::Connection;
 
 use proxy::HeadsetProxy;
 
 slint::include_modules!();
+
+// ---------------------------------------------------------------------------
+// Helpers for routing models — return plain Vecs (Send), build ModelRc on UI thread
+// ---------------------------------------------------------------------------
+
+async fn fetch_streams(conn: &Connection) -> Vec<SinkInputRow> {
+    if let Ok(proxy) = HeadsetProxy::new(conn).await {
+        proxy.list_sink_inputs().await.unwrap_or_default()
+            .into_iter()
+            .map(|(id, name, route)| SinkInputRow {
+                id:    id as i32,
+                name:  name.into(),
+                route: route.into(),
+            })
+            .collect()
+    } else {
+        vec![]
+    }
+}
+
+async fn refresh_routing(conn: &Connection, window_weak: &slint::Weak<MainWindow>) {
+    let streams = fetch_streams(conn).await;
+    let rules   = fetch_rules(conn).await;
+    let w = window_weak.clone();
+    slint::invoke_from_event_loop(move || {
+        if let Some(win) = w.upgrade() {
+            win.set_streams(ModelRc::new(VecModel::from(streams)));
+            win.set_rules(ModelRc::new(VecModel::from(rules)));
+        }
+    }).ok();
+}
+
+async fn fetch_rules(conn: &Connection) -> Vec<RouteRule> {
+    if let Ok(proxy) = HeadsetProxy::new(conn).await {
+        proxy.get_app_routes().await.unwrap_or_default()
+            .into_iter()
+            .map(|(name, route)| RouteRule {
+                app_name: name.into(),
+                route:    route.into(),
+            })
+            .collect()
+    } else {
+        vec![]
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -30,6 +75,10 @@ async fn main() -> Result<()> {
             }
         }
     }
+
+    // Load initial routing state
+    window.set_streams(ModelRc::new(VecModel::from(fetch_streams(&conn).await)));
+    window.set_rules(ModelRc::new(VecModel::from(fetch_rules(&conn).await)));
 
     // Wire up callbacks
     {
@@ -100,6 +149,49 @@ async fn main() -> Result<()> {
                 if let Ok(proxy) = HeadsetProxy::new(&conn).await {
                     let _ = proxy.set_power_savings(minutes as u8).await;
                 }
+            });
+        });
+    }
+
+    // Routing callbacks
+    {
+        let conn = conn.clone();
+        let window_weak = window.as_weak();
+        window.on_set_route(move |id, route| {
+            let conn = conn.clone();
+            let window_weak = window_weak.clone();
+            tokio::spawn(async move {
+                if let Ok(proxy) = HeadsetProxy::new(&conn).await {
+                    let _ = proxy.set_sink_input_route(id as u32, route.as_str()).await;
+                }
+                refresh_routing(&conn, &window_weak).await;
+            });
+        });
+    }
+
+    {
+        let conn = conn.clone();
+        let window_weak = window.as_weak();
+        window.on_remove_rule(move |name| {
+            let conn = conn.clone();
+            let window_weak = window_weak.clone();
+            tokio::spawn(async move {
+                if let Ok(proxy) = HeadsetProxy::new(&conn).await {
+                    let _ = proxy.remove_app_route(name.as_str()).await;
+                }
+                refresh_routing(&conn, &window_weak).await;
+            });
+        });
+    }
+
+    {
+        let conn = conn.clone();
+        let window_weak = window.as_weak();
+        window.on_refresh_streams(move || {
+            let conn = conn.clone();
+            let window_weak = window_weak.clone();
+            tokio::spawn(async move {
+                refresh_routing(&conn, &window_weak).await;
             });
         });
     }

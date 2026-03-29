@@ -53,6 +53,18 @@ pub trait Headset {
     #[zbus(property)]
     fn power_savings_minutes(&self) -> zbus::Result<u8>;
 
+    /// List non-loopback sink-inputs: Vec of (id, app_name, route).
+    async fn list_sink_inputs(&self) -> zbus::Result<Vec<(u32, String, String)>>;
+
+    /// Assign a sink-input to game/chat routing and persist the rule.
+    async fn set_sink_input_route(&self, sink_input_id: u32, route: &str) -> zbus::Result<()>;
+
+    /// Return saved routing rules as Vec of (app_name, route).
+    async fn get_app_routes(&self) -> zbus::Result<Vec<(String, String)>>;
+
+    /// Remove a saved routing rule by app name.
+    async fn remove_app_route(&self, app_name: &str) -> zbus::Result<()>;
+
     /// Set game/chat crossfader (0 = all chat, 50 = equal, 100 = all game).
     fn set_game_chat_mix(&self, mix: u8) -> zbus::Result<()>;
 

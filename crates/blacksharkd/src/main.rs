@@ -19,6 +19,7 @@ use state::SharedState;
 
 const TICK_INTERVAL: Duration = Duration::from_secs(5);
 const DEBOUNCE_INTERVAL: Duration = Duration::from_millis(500);
+const ROUTING_INTERVAL: Duration = Duration::from_secs(3);
 const DBUS_PATH: &str = "/net/blackshark1/Headset";
 const DBUS_NAME: &str = "net.blackshark1";
 
@@ -98,7 +99,7 @@ async fn main() -> Result<()> {
     });
 
     // D-Bus service.
-    let iface = dbus::HeadsetInterface::new(cmd_tx, state_rx.clone(), state_tx.clone(), config_tx);
+    let iface = dbus::HeadsetInterface::new(cmd_tx, state_rx.clone(), state_tx.clone(), config_tx.clone());
 
     let conn = ConnectionBuilder::session()?
         .name(DBUS_NAME)?
@@ -229,6 +230,30 @@ async fn main() -> Result<()> {
             prev = state;
         }
     });
+
+    // Auto-routing task: every 3 seconds, move any new sink-inputs that
+    // match a saved rule to their configured sink.
+    {
+        let config_rx = config_tx.clone().subscribe();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(ROUTING_INTERVAL);
+            loop {
+                interval.tick().await;
+                let cfg = config_rx.borrow().clone();
+                if cfg.app_routing.is_empty() { continue; }
+
+                let inputs = pipewire::list_sink_inputs().await;
+                for input in &inputs {
+                    let Some(rule) = cfg.app_routing.get(&input.app_name) else { continue };
+                    let target = rule.as_str();
+                    if input.route != target {
+                        let sink = format!("blackshark-{target}");
+                        pipewire::move_sink_input(input.id, &sink).await;
+                    }
+                }
+            }
+        });
+    }
 
     std::future::pending::<()>().await;
     Ok(())

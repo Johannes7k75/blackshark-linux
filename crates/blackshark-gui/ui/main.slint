@@ -1,6 +1,17 @@
 import { Button, VerticalBox, HorizontalBox, GroupBox, Slider,
          Switch, ComboBox, ProgressIndicator, StandardButton,
-         Palette, ScrollView } from "std-widgets.slint";
+         Palette, ScrollView, ListView } from "std-widgets.slint";
+
+export struct SinkInputRow {
+    id: int,
+    name: string,
+    route: string,  // "game", "chat", or ""
+}
+
+export struct RouteRule {
+    app-name: string,
+    route: string,
+}
 
 // ---------------------------------------------------------------------------
 // Sidebar tab button
@@ -192,9 +203,7 @@ component MicTab inherits VerticalBox {
 component AudioTab inherits VerticalBox {
     in property <bool> connected;
     in property <int>  eq-preset;
-    in property <int>  game-chat-mix;  // 0=all chat, 50=equal, 100=all game
     callback set-eq(int);
-    callback set-game-chat-mix(int);
 
     padding: 24px;
     spacing: 16px;
@@ -235,17 +244,32 @@ component AudioTab inherits VerticalBox {
         }
     }
 
+    Rectangle { vertical-stretch: 1; }
+}
+
+// ---------------------------------------------------------------------------
+// Routing tab
+// ---------------------------------------------------------------------------
+
+component RoutingTab inherits VerticalBox {
+    in property <bool>           connected;
+    in property <[SinkInputRow]> streams;
+    in property <[RouteRule]>    rules;
+    in property <int>            game-chat-mix;
+
+    callback set-route(int, string);   // (sink_input_id, "game"/"chat"/"")
+    callback remove-rule(string);      // app_name
+    callback refresh();
+    callback set-game-chat-mix(int);
+
+    padding: 24px;
+    spacing: 16px;
+
     // Game / Chat mix
     if connected: GroupBox {
         title: "Game / Chat Mix";
         VerticalBox {
             spacing: 8px;
-            Text {
-                text: "Route game audio to 'BlackShark Game' and chat/voice to 'BlackShark Chat' in your system audio settings.";
-                color: Palette.foreground;
-                font-size: 11px;
-                wrap: word-wrap;
-            }
             HorizontalBox {
                 spacing: 8px;
                 Text { text: "Chat"; color: Palette.foreground; vertical-alignment: center; }
@@ -264,6 +288,95 @@ component AudioTab inherits VerticalBox {
                 color: Palette.accent-background;
                 font-weight: 700;
                 horizontal-alignment: center;
+            }
+        }
+    }
+
+    // Active streams
+    GroupBox {
+        title: "Active Audio Streams";
+        VerticalBox {
+            spacing: 8px;
+            HorizontalBox {
+                Text {
+                    text: "Route each playing app to a sink. Rules are saved automatically.";
+                    color: Palette.foreground;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    wrap: word-wrap;
+                }
+                Button {
+                    text: "Refresh";
+                    clicked => { root.refresh(); }
+                }
+            }
+            if streams.length == 0: Text {
+                text: connected ? "No audio streams active." : "Headset not connected.";
+                color: Palette.foreground;
+                font-size: 12px;
+            }
+            for stream in streams: HorizontalBox {
+                spacing: 8px;
+                Text {
+                    text: stream.name;
+                    color: Palette.foreground;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
+                Button {
+                    text: "Game";
+                    primary: stream.route == "game";
+                    enabled: connected;
+                    clicked => { set-route(stream.id, "game"); }
+                }
+                Button {
+                    text: "Chat";
+                    primary: stream.route == "chat";
+                    enabled: connected;
+                    clicked => { set-route(stream.id, "chat"); }
+                }
+                Button {
+                    text: "Default";
+                    primary: stream.route == "";
+                    enabled: connected;
+                    clicked => { set-route(stream.id, ""); }
+                }
+            }
+        }
+    }
+
+    // Saved rules
+    GroupBox {
+        title: "Saved Rules";
+        VerticalBox {
+            spacing: 6px;
+            if rules.length == 0: Text {
+                text: "No rules saved yet. Assign a stream above to create one.";
+                color: Palette.foreground;
+                font-size: 11px;
+            }
+            for rule in rules: HorizontalBox {
+                spacing: 8px;
+                Text {
+                    text: rule.app-name;
+                    color: Palette.foreground;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
+                Text {
+                    text: rule.route == "game" ? "Game" : "Chat";
+                    color: Palette.accent-background;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                    min-width: 40px;
+                }
+                Button {
+                    text: "Remove";
+                    clicked => { remove-rule(rule.app-name); }
+                }
             }
         }
     }
@@ -313,10 +426,16 @@ export component MainWindow inherits Window {
     in property <int>        anc-level;
     in property <int>        power-savings;
 
+    in property <[SinkInputRow]> streams;
+    in property <[RouteRule]>   rules;
+
     // Callbacks → Rust
     callback set-eq(int);
     callback set-game-chat-mix(int);
     callback set-sidetone(int);
+    callback set-route(int, string);
+    callback remove-rule(string);
+    callback refresh-streams();
     callback set-thx(bool);
     callback set-anc(bool, int);
     callback set-power-savings(int);
@@ -350,7 +469,7 @@ export component MainWindow inherits Window {
                 TabButton { label: "Device";     active: active-tab == 0; clicked => { active-tab = 0; } }
                 TabButton { label: "Audio";      active: active-tab == 1; clicked => { active-tab = 1; } }
                 TabButton { label: "Mic";        active: active-tab == 2; clicked => { active-tab = 2; } }
-                TabButton { label: "Profiles";   active: active-tab == 3; clicked => { active-tab = 3; } }
+                TabButton { label: "Routing";    active: active-tab == 3; clicked => { active-tab = 3; } }
                 TabButton { label: "Automation"; active: active-tab == 4; clicked => { active-tab = 4; } }
                 TabButton { label: "Settings";   active: active-tab == 5; clicked => { active-tab = 5; } }
 
@@ -376,11 +495,9 @@ export component MainWindow inherits Window {
             horizontal-stretch: 1;
         }
         if active-tab == 1: AudioTab {
-            connected:      connected;
-            eq-preset:      eq-preset;
-            game-chat-mix:  game-chat-mix;
-            set-eq(p)              => { set-eq(p); }
-            set-game-chat-mix(m)   => { set-game-chat-mix(m); }
+            connected: connected;
+            eq-preset: eq-preset;
+            set-eq(p) => { set-eq(p); }
             horizontal-stretch: 1;
         }
         if active-tab == 2: MicTab {
@@ -389,7 +506,17 @@ export component MainWindow inherits Window {
             set-sidetone(v) => { set-sidetone(v); }
             horizontal-stretch: 1;
         }
-        if active-tab == 3: StubTab { name: "Profiles";   horizontal-stretch: 1; }
+        if active-tab == 3: RoutingTab {
+            connected:      connected;
+            streams:        streams;
+            rules:          rules;
+            game-chat-mix:  game-chat-mix;
+            set-route(id, r)       => { set-route(id, r); }
+            remove-rule(name)      => { remove-rule(name); }
+            refresh()              => { refresh-streams(); }
+            set-game-chat-mix(m)   => { set-game-chat-mix(m); }
+            horizontal-stretch: 1;
+        }
         if active-tab == 4: StubTab { name: "Automation"; horizontal-stretch: 1; }
         if active-tab == 5: StubTab { name: "Settings";   horizontal-stretch: 1; }
     }

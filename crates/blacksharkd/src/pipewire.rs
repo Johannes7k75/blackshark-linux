@@ -2,6 +2,112 @@ use anyhow::{Context, Result};
 use tokio::process::Command;
 use tracing::{info, warn};
 
+// ---------------------------------------------------------------------------
+// Sink-input enumeration and routing
+// ---------------------------------------------------------------------------
+
+/// A running audio stream and its current routing.
+#[derive(Debug, Clone)]
+pub struct SinkInput {
+    pub id: u32,
+    /// Human-readable application name.
+    pub app_name: String,
+    /// "game", "chat", or "" for anything else.
+    pub route: String,
+}
+
+/// List all non-loopback audio streams currently playing.
+pub async fn list_sink_inputs() -> Vec<SinkInput> {
+    // Build a map of sink index → sink name so we can determine routing.
+    let sink_map = build_sink_name_map().await;
+
+    let output = match Command::new("pactl")
+        .args(["--format=json", "list", "sink-inputs"])
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(e) => { warn!("pactl list sink-inputs failed: {e}"); return vec![]; }
+    };
+
+    let json: serde_json::Value = match serde_json::from_slice(&output.stdout) {
+        Ok(v) => v,
+        Err(e) => { warn!("failed to parse sink-inputs JSON: {e}"); return vec![]; }
+    };
+
+    let Some(entries) = json.as_array() else { return vec![]; };
+
+    let mut result = Vec::new();
+    for entry in entries {
+        // Skip loopback streams (client == null means it's a module-owned stream).
+        if entry["client"].is_null() {
+            continue;
+        }
+
+        let id = match entry["index"].as_u64() {
+            Some(v) => v as u32,
+            None => continue,
+        };
+
+        let props = &entry["properties"];
+        // Prefer the binary name, fall back to application.name.
+        let app_name = props["application.process.binary"]
+            .as_str()
+            .or_else(|| props["application.name"].as_str())
+            .unwrap_or("Unknown")
+            .to_owned();
+
+        let sink_index = entry["sink"].as_u64().unwrap_or(0) as u32;
+        let sink_name = sink_map.get(&sink_index).map(|s| s.as_str()).unwrap_or("");
+        let route = if sink_name == "blackshark-game" {
+            "game".to_owned()
+        } else if sink_name == "blackshark-chat" {
+            "chat".to_owned()
+        } else {
+            String::new()
+        };
+
+        result.push(SinkInput { id, app_name, route });
+    }
+
+    result
+}
+
+/// Move a sink-input to the given sink name.
+pub async fn move_sink_input(id: u32, sink_name: &str) {
+    let status = Command::new("pactl")
+        .args(["move-sink-input", &id.to_string(), sink_name])
+        .status()
+        .await;
+    match status {
+        Ok(s) if s.success() => info!("moved sink-input {id} to {sink_name}"),
+        Ok(s) => warn!("pactl move-sink-input {id} {sink_name} exited {s}"),
+        Err(e) => warn!("pactl move-sink-input {id} {sink_name} failed: {e}"),
+    }
+}
+
+async fn build_sink_name_map() -> std::collections::HashMap<u32, String> {
+    let mut map = std::collections::HashMap::new();
+    let output = match Command::new("pactl")
+        .args(["list", "short", "sinks"])
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(_) => return map,
+    };
+    let stdout = String::from_utf8(output.stdout).unwrap_or_default();
+    for line in stdout.lines() {
+        let mut parts = line.split_whitespace();
+        if let (Some(idx), Some(name)) = (parts.next(), parts.next()) {
+            if let Ok(idx) = idx.parse::<u32>() {
+                map.insert(idx, name.to_owned());
+            }
+        }
+    }
+    map
+}
+
 /// Create a null sink and return its pactl module ID.
 pub async fn load_null_sink(name: &str, desc: &str) -> Result<u32> {
     let output = Command::new("pactl")
