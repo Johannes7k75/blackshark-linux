@@ -3,7 +3,8 @@ set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # blackshark-ctl installer
-# Builds release binaries and wires up the systemd user service + udev rule.
+# If pre-built binaries are present alongside this script, installs them
+# directly. Otherwise builds from source (requires Rust/cargo).
 # ---------------------------------------------------------------------------
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,12 +23,26 @@ ok()    { echo -e "${GREEN}    ok${NC}"; }
 die()   { echo -e "${RED}error: $*${NC}" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
+# Detect whether pre-built binaries are present
+# ---------------------------------------------------------------------------
+
+PREBUILT=true
+for bin in blacksharkd blackshark-ctl blackshark-tray blackshark-gui; do
+    if [[ ! -x "${REPO_DIR}/${bin}" ]]; then
+        PREBUILT=false
+        break
+    fi
+done
+
+# ---------------------------------------------------------------------------
 # Checks
 # ---------------------------------------------------------------------------
 
 info "Checking dependencies"
 
-command -v cargo     >/dev/null 2>&1 || die "cargo not found — install Rust from https://rustup.rs"
+if [[ "$PREBUILT" == false ]]; then
+    command -v cargo >/dev/null 2>&1 || die "cargo not found — install Rust from https://rustup.rs, or download a pre-built release"
+fi
 command -v systemctl >/dev/null 2>&1 || die "systemctl not found — this installer requires systemd"
 
 # Warn if the user is not in the 'users' group (needed for the udev rule).
@@ -42,13 +57,21 @@ fi
 ok
 
 # ---------------------------------------------------------------------------
-# Build
+# Build (only if no pre-built binaries found)
 # ---------------------------------------------------------------------------
 
-info "Building release binaries (this may take a minute)"
-cd "$REPO_DIR"
-cargo build --release -p blacksharkd -p blackshark-ctl -p blackshark-tray -p blackshark-gui
-ok
+if [[ "$PREBUILT" == true ]]; then
+    info "Using pre-built binaries"
+    ok
+else
+    info "Building release binaries (this may take a minute)"
+    cd "$REPO_DIR"
+    cargo build --release -p blacksharkd -p blackshark-ctl -p blackshark-tray -p blackshark-gui
+    for bin in blacksharkd blackshark-ctl blackshark-tray blackshark-gui; do
+        cp "target/release/${bin}" "${REPO_DIR}/${bin}"
+    done
+    ok
+fi
 
 # ---------------------------------------------------------------------------
 # Install binaries
@@ -58,7 +81,7 @@ info "Installing binaries to ${BIN_DIR}"
 mkdir -p "$BIN_DIR"
 
 for bin in blacksharkd blackshark-ctl blackshark-tray blackshark-gui; do
-    install -m755 "target/release/${bin}" "${BIN_DIR}/${bin}"
+    install -m755 "${REPO_DIR}/${bin}" "${BIN_DIR}/${bin}"
     echo "    ${BIN_DIR}/${bin}"
 done
 ok
@@ -106,10 +129,24 @@ ok
 echo ""
 echo -e "${GREEN}${BOLD}Installation complete.${NC}"
 echo ""
-echo "  Daemon:   systemctl --user status blacksharkd"
-echo "  CLI:      blackshark-ctl status"
-echo "  Tray:     blackshark-tray  (add to your autostart)"
-echo "  GUI:      blackshark-gui"
+echo "  Next steps:"
 echo ""
-echo "If the headset is not detected, replug the USB dongle after the udev"
-echo "rules have been applied."
+echo "  1. Plug in the USB dongle if it isn't already."
+echo ""
+echo "  2. Check the daemon is running:"
+echo "       systemctl --user status blacksharkd"
+echo ""
+echo "  3. Verify the headset is detected:"
+echo "       blackshark-ctl status"
+echo ""
+echo "  4. Start the system tray:"
+echo "       blackshark-tray &"
+echo ""
+echo "  5. Open the settings GUI:"
+echo "       blackshark-gui"
+echo ""
+echo "  To start the tray automatically on login, add it to your desktop"
+echo "  autostart. On KDE: Settings -> Autostart -> Add Application."
+echo ""
+echo "  If the headset is not detected, replug the USB dongle after the"
+echo "  udev rules have been applied."

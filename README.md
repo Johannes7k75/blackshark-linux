@@ -38,19 +38,66 @@ Controls sidetone, EQ presets, THX Spatial Audio, Active Noise Cancellation, and
 
 ## Quick install
 
+**Option A — pre-built release (recommended):**
+
+1. Download the latest release tarball from the [Releases page](https://github.com/RiskRunner0/blackshark-linux/releases)
+2. Extract and run:
+   ```bash
+   tar xzf blackshark-ctl-*.tar.gz
+   cd blackshark-ctl-*
+   ./install.sh
+   ```
+
+**Option B — build from source:**
+
 ```bash
 git clone https://github.com/RiskRunner0/blackshark-linux.git
 cd blackshark-linux
 ./install.sh
 ```
 
-The script:
-1. Builds release binaries with `cargo build --release`
-2. Installs them to `~/.local/bin/`
-3. Installs and starts the systemd user service (`blacksharkd`)
-4. Installs the udev rule (requires `sudo`) so the daemon can access the HID device without root
+The script installs the binaries to `~/.local/bin/`, starts the daemon as a systemd user service, and installs the udev rule (requires `sudo`) so the daemon can access the headset without root.
 
-After install, plug in the USB dongle and the daemon will connect automatically.
+---
+
+## Getting started
+
+After install, plug in the USB dongle. Then:
+
+**1. Check the daemon is running:**
+```bash
+systemctl --user status blacksharkd
+```
+
+**2. Verify the headset is detected:**
+```bash
+blackshark-ctl status
+```
+
+**3. Start the system tray:**
+```bash
+blackshark-tray &
+```
+The tray icon appears in your taskbar with battery %, quick toggles for EQ, sidetone, THX, and ANC, and a Daemon submenu if you need to restart it.
+
+**4. Open the settings GUI:**
+```bash
+blackshark-gui
+```
+All settings are applied immediately and sync back to the tray in real time.
+
+**5. Add the tray to autostart** so it launches on login:
+```bash
+mkdir -p ~/.config/autostart
+cat > ~/.config/autostart/blackshark-tray.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=BlackShark Tray
+Exec=blackshark-tray
+Restart=on-failure
+X-KDE-autostart-after=panel
+EOF
+```
 
 ---
 
