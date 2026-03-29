@@ -37,13 +37,13 @@ component TabButton inherits Rectangle {
 // ---------------------------------------------------------------------------
 
 component DeviceTab inherits VerticalBox {
-    in property <bool>   connected;
-    in property <int>    battery-pct;
-    in property <bool>   charging;
-    in property <bool>   thx-enabled;
-    in property <bool>   anc-enabled;
-    in property <int>    anc-level;
-    in property <int>    power-savings;
+    in property <bool>       connected;
+    in property <int>        battery-pct;
+    in property <bool>       charging;
+    in-out property <bool>   thx-enabled;
+    in-out property <bool>   anc-enabled;
+    in property <int>        anc-level;
+    in property <int>        power-savings;
 
     callback set-thx(bool);
     callback set-anc(bool, int);
@@ -87,14 +87,14 @@ component DeviceTab inherits VerticalBox {
             HorizontalBox {
                 Text { text: "THX Spatial Audio"; color: Palette.foreground; vertical-alignment: center; }
                 Switch {
-                    checked: thx-enabled;
+                    checked <=> thx-enabled;
                     toggled => { set-thx(self.checked); }
                 }
             }
             HorizontalBox {
                 Text { text: "Active Noise Cancellation"; color: Palette.foreground; vertical-alignment: center; }
                 Switch {
-                    checked: anc-enabled;
+                    checked <=> anc-enabled;
                     toggled => { set-anc(self.checked, anc-level); }
                 }
             }
@@ -267,15 +267,15 @@ export component MainWindow inherits Window {
 
     // State
     in-out property <int>  active-tab: 0;
-    in property <bool>   connected;
-    in property <int>    battery-pct;
-    in property <bool>   charging;
-    in property <int>    eq-preset;
-    in property <int>    sidetone;
-    in property <bool>   thx-enabled;
-    in property <bool>   anc-enabled;
-    in property <int>    anc-level;
-    in property <int>    power-savings;
+    in property <bool>       connected;
+    in property <int>        battery-pct;
+    in property <bool>       charging;
+    in property <int>        eq-preset;
+    in property <int>        sidetone;
+    in-out property <bool>   thx-enabled;
+    in-out property <bool>   anc-enabled;
+    in property <int>        anc-level;
+    in property <int>        power-savings;
 
     // Callbacks → Rust
     callback set-eq(int);
@@ -329,8 +329,8 @@ export component MainWindow inherits Window {
             connected:     connected;
             battery-pct:   battery-pct;
             charging:      charging;
-            thx-enabled:   thx-enabled;
-            anc-enabled:   anc-enabled;
+            thx-enabled <=> thx-enabled;
+            anc-enabled <=> anc-enabled;
             anc-level:     anc-level;
             power-savings: power-savings;
             set-thx(v)       => { set-thx(v); }
