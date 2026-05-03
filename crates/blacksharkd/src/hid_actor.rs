@@ -80,6 +80,7 @@ fn run(
     let mut dev: Option<HidDevice> = try_open();
     let mut next_battery_poll = Instant::now(); // poll immediately on first tick
     let mut device_ready = false; // true after first successful battery poll
+    let mut rf_wait_count: u32 = 0;
 
     while let Some(cmd) = rx.blocking_recv() {
         match cmd {
@@ -103,6 +104,7 @@ fn run(
                                 if !device_ready {
                                     // First successful battery poll = wireless link established.
                                     device_ready = true;
+                                    rf_wait_count = 0;
                                     let sidetone = query_sidetone(d).ok();
                                     info!(percentage = b.percentage, sidetone, "headset connected");
                                     state_tx.send_modify(|s| {
@@ -126,9 +128,18 @@ fn run(
                                     warn!("headset disconnected: {e}");
                                     device_ready = false;
                                     dev = None;
+                                    rf_wait_count = 0;
                                     state_tx.send_modify(|s| s.connected = false);
                                 } else {
-                                    debug!("waiting for RF link: {e}");
+                                    // Clear the device handle so try_open() fires next Tick.
+                                    // This handles the case where the dongle is unplugged
+                                    // before the RF link establishes — without this, the
+                                    // stale HidDevice handle prevents reconnect detection.
+                                    dev = None;
+                                    rf_wait_count += 1;
+                                    if rf_wait_count == 1 || rf_wait_count % 6 == 0 {
+                                        info!(attempt = rf_wait_count, error = %e, "waiting for RF link");
+                                    }
                                 }
                             }
                         }
