@@ -23,6 +23,7 @@
 #define USB_VENDOR_ID_RAZER                  0x1532
 #define USB_DEVICE_ID_RAZER_BLACKSHARK_V3_PRO 0x0577
 #define USB_DEVICE_ID_RAZER_BLACKSHARK_V2_HS  0x0565
+#define USB_DEVICE_ID_RAZER_BLACKSHARK_V3_X   0x057d
 
 /* HID report format (64 bytes, confirmed from usbmon) */
 #define BLACKSHARK_REPORT_LEN   64
@@ -488,6 +489,8 @@ static const struct hid_device_id blackshark_devices[] = {
 			 USB_DEVICE_ID_RAZER_BLACKSHARK_V3_PRO) },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_RAZER,
 			 USB_DEVICE_ID_RAZER_BLACKSHARK_V2_HS) },
+	{ HID_USB_DEVICE(USB_VENDOR_ID_RAZER,
+			 USB_DEVICE_ID_RAZER_BLACKSHARK_V3_X) },
 	{ }
 };
 MODULE_DEVICE_TABLE(hid, blackshark_devices);

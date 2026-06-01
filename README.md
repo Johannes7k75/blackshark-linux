@@ -1,6 +1,6 @@
 # blackshark-ctl
 
-Linux userspace driver for the **Razer BlackShark V3 Pro** and **Razer BlackShark V2 X HyperSpeed (V2 HS)** wireless headsets.
+Linux userspace driver for **Razer BlackShark** headsets (including V3 Pro, V3 X, and V2 HS).
 
 Controls sidetone, EQ presets, THX Spatial Audio, Active Noise Cancellation, and power savings — without Razer Synapse or Windows.
 
@@ -216,25 +216,26 @@ Security audit runs weekly via `cargo audit`. Release builds for `x86_64` are pr
 - Supported PIDs:
   - `0x0577` (Razer BlackShark V3 Pro)
   - `0x0565` (Razer BlackShark V2 HS 2.4)
+  - `0x057d` (Razer BlackShark V3 X)
 - HID reports: 64 bytes, report ID `0x02`
-- Interface: HID control interface (interface 5 for V3 Pro, interface 3 for V2 HS), endpoint `0x84`
+- Interface: HID control interface (interface 5 for V3 Pro, interface 3/fallback for V2 HS and V3 X), endpoint `0x84`
 - Protocol: custom Razer HID (not HID++ or OpenRazer-compatible)
 
 ---
 
 ## Device Support Matrix & Limitations
 
-| Feature | Razer BlackShark V3 Pro (`0x0577`) | Razer BlackShark V2 HS (`0x0565`) |
-| :--- | :---: | :---: |
-| **Connection & Battery** | Yes | Yes |
-| **Sidetone (Mic Monitoring)** | Yes | Yes (Hardware support, volume can be low) |
-| **Power Savings (Auto Off)** | Yes | Yes |
-| **PipeWire Game/Chat Mix** | Yes | Yes (Requires client-side routing) |
-| **Hardware EQ Presets** | Yes | No (Dongle returns Timeout status) |
-| **Active Noise Cancellation**| Yes | No (No ANC hardware on device) |
-| **THX Spatial Audio** | Yes | No (Software-only feature on V2 HS) |
+| Feature | Razer BlackShark V3 Pro (`0x0577`) | Razer BlackShark V2 HS (`0x0565`) | Razer BlackShark V3 X (`0x057d`) |
+| :--- | :---: | :---: | :---: |
+| **Connection & Battery** | Yes | Yes | Yes |
+| **Sidetone (Mic Monitoring)** | Yes | Yes (Hardware support, volume can be low) | Untested (Inherited fallback) |
+| **Power Savings (Auto Off)** | Yes | Yes | Untested (Inherited fallback) |
+| **PipeWire Game/Chat Mix** | Yes | Yes (Requires client-side routing) | Untested (Inherited fallback) |
+| **Hardware EQ Presets** | Yes | No (Dongle returns Timeout status) | Untested (Inherited fallback) |
+| **Active Noise Cancellation**| Yes | No (No ANC hardware on device) | No (No ANC hardware on device) |
+| **THX Spatial Audio** | Yes | No (Software-only feature on V2 HS) | No (Software-only feature on V3 X) |
 
 > [!NOTE]
-> For headsets with limited or missing hardware EQ support (like the V2 HS), we recommend using **EasyEffects** on Linux for custom, high-quality software equalization.
+> For headsets with limited or missing hardware EQ support (like the V2 HS and V3 X), we recommend using **EasyEffects** on Linux for custom, high-quality software equalization.
 >
-> When unsupported hardware settings (e.g. THX or ANC) are changed in the GUI/CLI for the V2 HS, the daemon will print a warning log message (`headset returned command error`) instead of disconnecting the device.
+> When unsupported hardware settings are changed in the GUI/CLI, the daemon will print a warning log message (`headset returned command error`) instead of disconnecting the device.

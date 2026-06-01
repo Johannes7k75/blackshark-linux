@@ -4,3 +4,6 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0577", MODE="06
 
 # Razer BlackShark V2 X HyperSpeed (V2 HS) — grant access to the HID interface without root.
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0565", MODE="0660", GROUP="users"
+
+# Razer BlackShark V3 X — grant access to the HID interface without root.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="057d", MODE="0660", GROUP="users"

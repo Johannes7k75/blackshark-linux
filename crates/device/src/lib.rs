@@ -7,6 +7,7 @@ use blackshark_protocol::{Report, ResponseStatus, REPORT_LEN};
 const VID: u16 = 0x1532;
 const PID_V3_PRO: u16 = 0x0577;
 const PID_V2_HS: u16 = 0x0565;
+const PID_V3_X: u16 = 0x057d;
 
 /// Open the BlackShark HID device.
 ///
@@ -17,10 +18,11 @@ pub fn open() -> Result<HidDevice> {
     let api = HidApi::new().context("failed to initialise hidapi")?;
 
     let mut target = None;
+    let mut interfaces_found = Vec::new();
     for info in api.device_list() {
         if info.vendor_id() == VID {
             let pid = info.product_id();
-            if pid == PID_V3_PRO || pid == PID_V2_HS {
+            if pid == PID_V3_PRO || pid == PID_V2_HS || pid == PID_V3_X {
                 let path = info.path().to_string_lossy();
                 info!(
                     interface = info.interface_number(),
@@ -28,12 +30,22 @@ pub fn open() -> Result<HidDevice> {
                     pid = pid,
                     "found BlackShark hidraw interface"
                 );
-                let target_interface = if pid == PID_V3_PRO { 5 } else { 3 };
-                if info.interface_number() == target_interface {
-                    target = Some(info.clone());
-                }
+                interfaces_found.push((pid, info.clone()));
             }
         }
+    }
+
+    // Try to match the specific target interface number first
+    for &(pid, ref info) in &interfaces_found {
+        let target_interface = if pid == PID_V3_PRO { 5 } else { 3 };
+        if info.interface_number() == target_interface {
+            target = Some(info.clone());
+        }
+    }
+
+    // Fallback: If we only found exactly one HID interface for this device, use it!
+    if target.is_none() && interfaces_found.len() == 1 {
+        target = Some(interfaces_found[0].1.clone());
     }
 
     match target {
