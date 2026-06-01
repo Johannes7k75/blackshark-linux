@@ -5,38 +5,44 @@ use tracing::info;
 use blackshark_protocol::{Report, ResponseStatus, REPORT_LEN};
 
 const VID: u16 = 0x1532;
-const PID: u16 = 0x0577;
+const PID_V3_PRO: u16 = 0x0577;
+const PID_V2_HS: u16 = 0x0565;
 
-/// Open the BlackShark V3 Pro HID device.
+/// Open the BlackShark HID device.
 ///
-/// Must open interface 5 specifically — the dongle exposes multiple HID interfaces
-/// and api.open(VID, PID) picks the first enumerated, which varies across systems.
-/// Interface 5 is the proprietary control interface (interrupt IN, endpoint 0x84).
+/// Must open the proprietary control interface specifically (Interface 5 for V3 Pro, Interface 3 for V2 HS)
+/// — the dongle exposes multiple HID interfaces and api.open(VID, PID) picks the first
+/// enumerated, which varies across systems.
 pub fn open() -> Result<HidDevice> {
     let api = HidApi::new().context("failed to initialise hidapi")?;
 
     let mut target = None;
     for info in api.device_list() {
-        if info.vendor_id() == VID && info.product_id() == PID {
-            let path = info.path().to_string_lossy();
-            info!(
-                interface = info.interface_number(),
-                path = %path,
-                "found BlackShark hidraw interface"
-            );
-            if info.interface_number() == 5 {
-                target = Some(info.clone());
+        if info.vendor_id() == VID {
+            let pid = info.product_id();
+            if pid == PID_V3_PRO || pid == PID_V2_HS {
+                let path = info.path().to_string_lossy();
+                info!(
+                    interface = info.interface_number(),
+                    path = %path,
+                    pid = pid,
+                    "found BlackShark hidraw interface"
+                );
+                let target_interface = if pid == PID_V3_PRO { 5 } else { 3 };
+                if info.interface_number() == target_interface {
+                    target = Some(info.clone());
+                }
             }
         }
     }
 
     match target {
-        None => bail!("BlackShark V3 Pro not found — is the dongle plugged in and do you have udev permission?"),
+        None => bail!("BlackShark headset not found — is the dongle plugged in and do you have udev permission?"),
         Some(info) => {
             let path = info.path().to_string_lossy().into_owned();
             let dev = info
                 .open_device(&api)
-                .context("found BlackShark V3 Pro but failed to open control interface — check udev permissions")?;
+                .context("found BlackShark headset but failed to open control interface — check udev permissions")?;
             info!(path = %path, "opened BlackShark control interface");
             Ok(dev)
         }
@@ -65,6 +71,20 @@ pub fn send_no_wait(dev: &HidDevice, report: &Report) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
+pub struct DeviceStatusError {
+    pub status: ResponseStatus,
+    pub raw: u8,
+}
+
+impl std::fmt::Display for DeviceStatusError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "device returned error status: {:?} (raw=0x{:02x})", self.status, self.raw)
+    }
+}
+
+impl std::error::Error for DeviceStatusError {}
+
 /// Send a report and read back the response.
 ///
 /// Razer devices echo the command back with the status byte set.
@@ -84,9 +104,9 @@ pub fn send(dev: &HidDevice, report: &Report) -> Result<Report> {
 
     match response.status() {
         ResponseStatus::Ok => Ok(response),
-        other => bail!(
-            "device returned error status: {other:?} (raw=0x{:02x})",
-            response.as_bytes()[1]
-        ),
+        other => Err(anyhow::Error::new(DeviceStatusError {
+            status: other,
+            raw: response.as_bytes()[1],
+        })),
     }
 }

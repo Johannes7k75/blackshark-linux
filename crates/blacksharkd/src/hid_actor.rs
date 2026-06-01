@@ -328,10 +328,14 @@ where
         None => anyhow::bail!("headset not connected"),
         Some(d) => {
             let result = f(d);
-            if result.is_err() {
-                warn!("headset disconnected");
-                *dev = None;
-                state_tx.send_modify(|s| s.connected = false);
+            if let Err(e) = &result {
+                if e.downcast_ref::<device::DeviceStatusError>().is_some() {
+                    warn!("headset returned command error: {e}");
+                } else {
+                    warn!("headset disconnected: {e}");
+                    *dev = None;
+                    state_tx.send_modify(|s| s.connected = false);
+                }
             }
             result
         }
