@@ -106,7 +106,7 @@ jobs:
           done
 
           cp -r pkg "$OUTDIR/"
-          cp install.sh "$OUTDIR/"
+          cp install.sh uninstall.sh "$OUTDIR/"
 
           tar czf "${OUTDIR}.tar.gz" "$OUTDIR"
 

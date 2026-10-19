@@ -23,12 +23,22 @@ const DBUS_NAME: &str = "net.blackshark1";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("blacksharkd {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "blacksharkd=info".into()),
+                .unwrap_or_else(|_| "blacksharkd=info,blackshark_device=info".into()),
         )
         .init();
+
+    info!(
+        version = env!("CARGO_PKG_VERSION"),
+        "starting blacksharkd (set RUST_LOG=blacksharkd=debug,blackshark_device=debug for protocol detail)"
+    );
 
     // Load config from disk (or create defaults).
     let initial_config = match config::load() {

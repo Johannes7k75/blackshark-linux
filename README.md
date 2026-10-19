@@ -70,6 +70,44 @@ The script installs the binaries to `~/.local/bin/`, starts the daemon as a syst
 
 ---
 
+## Uninstall / reinstall
+
+```bash
+./uninstall.sh           # removes binaries, service, desktop entries, udev rule
+./uninstall.sh --purge   # same, plus your saved settings (~/.config/blackshark)
+```
+
+Then run `./install.sh` again and unplug and re-plug the dongle.
+
+## Troubleshooting
+
+Run the diagnostics script and attach its output to your issue:
+
+```bash
+pkg/diagnose.sh > blackshark-diagnostics.txt
+```
+
+It records the distro, group membership, the dongle's hidraw nodes and permissions, firmware
+revision, daemon status, and the last 80 log lines.
+
+For protocol-level detail, run the daemon in the foreground with debug logging:
+
+```bash
+systemctl --user stop blacksharkd
+RUST_LOG=blacksharkd=debug,blackshark_device=debug blacksharkd
+```
+
+What the daemon log tells you:
+
+| Log line | Meaning |
+|---|---|
+| `cannot open dongle: ... not visible` | Dongle unplugged, or no permission on `/dev/hidraw*`. Replug after install. |
+| `cannot open dongle: ... no HID interface 5` | Different interface layout on your firmware. Please report it. |
+| `waiting for headset (is it powered on and paired ...)` | Dongle is fine but silent: headset off, on Bluetooth, unpaired, or old firmware (needs 1.3.x+). |
+| `headset connected` | Working. |
+
+---
+
 ## Getting started
 
 After install, plug in the USB dongle. Then:

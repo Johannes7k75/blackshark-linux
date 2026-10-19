@@ -18,6 +18,7 @@ pub fn open() -> Result<HidDevice> {
     let api = HidApi::new().context("failed to initialise hidapi")?;
 
     let mut target = None;
+    let mut seen = Vec::new();
     for info in api.device_list() {
         if info.vendor_id() == VID && info.product_id() == PID {
             let path = info.path().to_string_lossy();
@@ -26,6 +27,7 @@ pub fn open() -> Result<HidDevice> {
                 path = %path,
                 "found BlackShark hidraw interface"
             );
+            seen.push(format!("{}=if{}", path, info.interface_number()));
             if info.interface_number() == 5 {
                 target = Some(info.clone());
             }
@@ -33,13 +35,26 @@ pub fn open() -> Result<HidDevice> {
     }
 
     match target {
-        None => bail!("BlackShark V3 Pro not found — is the dongle plugged in and do you have udev permission?"),
+        None if seen.is_empty() => bail!(
+            "BlackShark V3 Pro (1532:0577) not visible to hidapi — is the dongle plugged in, \
+             and does your user have access to /dev/hidraw* (udev rule installed, dongle replugged)?"
+        ),
+        None => bail!(
+            "BlackShark V3 Pro found but has no HID interface 5 (saw: {}) — \
+             firmware may use a different interface layout; please report this",
+            seen.join(", ")
+        ),
         Some(info) => {
             let path = info.path().to_string_lossy().into_owned();
-            let dev = info
-                .open_device(&api)
-                .context("found BlackShark V3 Pro but failed to open control interface — check udev permissions")?;
-            info!(path = %path, "opened BlackShark control interface");
+            let dev = info.open_device(&api).with_context(|| {
+                format!("found {path} but failed to open it — check udev permissions (ls -l {path})")
+            })?;
+            info!(
+                path = %path,
+                release = format_args!("{:#06x}", info.release_number()),
+                product = info.product_string().unwrap_or("?"),
+                "opened BlackShark control interface"
+            );
             Ok(dev)
         }
     }
