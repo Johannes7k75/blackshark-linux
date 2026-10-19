@@ -38,6 +38,12 @@ Controls sidetone, EQ presets, THX Spatial Audio, Active Noise Cancellation, and
 > Users on 1.2.x have reported the daemon sees the dongle but cannot communicate with the headset.
 > Update firmware via Razer Synapse on Windows before switching to Linux. (See [#1](https://github.com/RiskRunner0/blackshark-linux/issues/1))
 
+> **Stuck on "waiting for headset"?** The daemon can see the dongle but the dongle is not linked
+> to the headset. Check that the headset is powered on, in 2.4GHz mode (LED green, not white/Bluetooth),
+> and still paired to the dongle. Re-pair with Razer's pairing tool on Windows if needed
+> (see [#7](https://github.com/RiskRunner0/blackshark-linux/issues/7)). Run `journalctl --user -u blacksharkd`
+> for details.
+
 ---
 
 ## Quick install

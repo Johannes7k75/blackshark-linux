@@ -77,7 +77,8 @@ fn run(
     state_tx: watch::Sender<SharedState>,
     initial_config: Config,
 ) {
-    let mut dev: Option<HidDevice> = try_open();
+    let mut open_err_logged = false;
+    let mut dev: Option<HidDevice> = try_open(&mut open_err_logged);
     let mut next_battery_poll = Instant::now(); // poll immediately on first tick
     let mut device_ready = false; // true after first successful battery poll
     let mut rf_wait_count: u32 = 0;
@@ -86,7 +87,7 @@ fn run(
         match cmd {
             HidCommand::Tick => {
                 if dev.is_none() {
-                    if let Some(d) = try_open() {
+                    if let Some(d) = try_open(&mut open_err_logged) {
                         dev = Some(d);
                         device_ready = false;
                     }
@@ -124,21 +125,28 @@ fn run(
                                 }
                             }
                             Err(e) => {
+                                let link_down = is_link_down(&e);
                                 if device_ready {
                                     warn!("headset disconnected: {e}");
                                     device_ready = false;
-                                    dev = None;
                                     rf_wait_count = 0;
                                     state_tx.send_modify(|s| s.connected = false);
+                                    if !link_down {
+                                        dev = None;
+                                    }
                                 } else {
-                                    // Clear the device handle so try_open() fires next Tick.
-                                    // This handles the case where the dongle is unplugged
-                                    // before the RF link establishes — without this, the
-                                    // stale HidDevice handle prevents reconnect detection.
-                                    dev = None;
+                                    if !link_down {
+                                        // I/O error: the dongle was unplugged. Drop the handle
+                                        // so try_open() fires next Tick.
+                                        dev = None;
+                                    }
                                     rf_wait_count += 1;
-                                    if rf_wait_count == 1 || rf_wait_count.is_multiple_of(6) {
-                                        info!(attempt = rf_wait_count, error = %e, "waiting for RF link");
+                                    if rf_wait_count == 1 || rf_wait_count.is_multiple_of(12) {
+                                        info!(
+                                            attempt = rf_wait_count,
+                                            error = %e,
+                                            "waiting for headset (is it powered on and paired to the dongle?)"
+                                        );
                                     }
                                 }
                             }
@@ -252,37 +260,31 @@ fn run(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Send the initialization handshake that the Windows Razer driver issues on connect.
-///
-/// The dongle's HID config interface only becomes active once the 2.4GHz wireless
-/// link to the headset is established — typically 10–15 seconds after USB plug-in.
-/// Windows waits for this naturally (driver + Synapse startup takes that long).
-/// We must poll until the device responds before proceeding with any config commands.
-///
-/// Sequence observed in bare-metal Windows usbmon capture:
-///   1. cls=0x02, flag=0x00 — device capability query (response = device is ready)
-///   2. cls=0x2a, flag=0x00 — charging capability query
-///   3. Then normal queries follow.
-///
-/// Placeholder — the RF link establishes automatically without init commands.
-/// Sending commands before the link is up pollutes the read buffer and causes
-/// subsequent battery reads to consume stale responses. We do nothing here and
-/// let the Tick's battery poll detect when the link is ready.
-fn init_session(_dev: &HidDevice) {}
-
-/// Open the device and optionally restore config immediately.
-/// Open the hidraw device and fire the init handshake.
-/// Does NOT wait for the wireless RF link — that may take ~44s after a cold replug.
-/// The Tick handler will detect readiness via battery poll and restore config then.
-fn try_open() -> Option<HidDevice> {
+/// Open the dongle's hidraw control interface.
+/// Does NOT wait for the wireless RF link — the Tick handler detects readiness via
+/// battery poll and restores config then. Open failures are logged once per outage
+/// (a missing device is normal; a permission error is not).
+fn try_open(err_logged: &mut bool) -> Option<HidDevice> {
     match device::open() {
-        Err(_) => None,
+        Err(e) => {
+            if !*err_logged {
+                warn!("cannot open dongle: {e:#}");
+                *err_logged = true;
+            }
+            None
+        }
         Ok(d) => {
-            init_session(&d);
+            *err_logged = false;
             info!("dongle opened, waiting for wireless link");
             Some(d)
         }
     }
+}
+
+/// True when the error means the dongle is alive but the headset is not linked,
+/// as opposed to an I/O failure on the hidraw handle.
+fn is_link_down(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<device::NoResponse>().is_some()
 }
 
 /// Apply all config values to the device. Logs but does not fail on errors —
@@ -328,10 +330,15 @@ where
         None => anyhow::bail!("headset not connected"),
         Some(d) => {
             let result = f(d);
-            if result.is_err() {
-                warn!("headset disconnected");
-                *dev = None;
-                state_tx.send_modify(|s| s.connected = false);
+            if let Err(e) = &result {
+                if is_link_down(e) {
+                    warn!("headset not responding");
+                    state_tx.send_modify(|s| s.connected = false);
+                } else if e.chain().any(|c| c.is::<hidapi::HidError>()) {
+                    warn!("dongle I/O error, closing handle: {e:#}");
+                    *dev = None;
+                    state_tx.send_modify(|s| s.connected = false);
+                }
             }
             result
         }
@@ -365,6 +372,10 @@ fn query_battery(dev: &HidDevice) -> Result<BatteryState> {
     let response = device::send(dev, &report)?;
     let args = response.args();
     anyhow::ensure!(args.len() >= 2, "battery response too short");
+    // 0xff is the dongle's "no headset linked" sentinel (headset off or out of range).
+    if args[0] == 0xff {
+        return Err(device::NoResponse.into());
+    }
     anyhow::ensure!(
         args[0] <= 100,
         "battery percentage out of range: {}",
