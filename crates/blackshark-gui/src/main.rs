@@ -1,13 +1,16 @@
 mod pipewire;
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use blackshark_client::HeadsetProxy;
 use slint::{ComponentHandle, ModelRc, VecModel};
 use zbus::Connection;
+
+/// Sliders emit every intermediate value while dragging; only send once they settle.
+const SLIDER_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
 
 slint::include_modules!();
 
@@ -224,9 +227,16 @@ async fn main() -> Result<()> {
 
     {
         let conn = conn.clone();
+        let generation = Arc::new(AtomicU64::new(0));
         window.on_set_sidetone(move |level| {
             let conn = conn.clone();
+            let generation = generation.clone();
+            let mine = generation.fetch_add(1, Ordering::SeqCst) + 1;
             tokio::spawn(async move {
+                tokio::time::sleep(SLIDER_DEBOUNCE).await;
+                if generation.load(Ordering::SeqCst) != mine {
+                    return;
+                }
                 if let Ok(proxy) = HeadsetProxy::new(&conn).await {
                     let _ = proxy.set_sidetone(level as u8).await;
                 }
@@ -248,9 +258,16 @@ async fn main() -> Result<()> {
 
     {
         let conn = conn.clone();
+        let generation = Arc::new(AtomicU64::new(0));
         window.on_set_anc(move |enabled, level| {
             let conn = conn.clone();
+            let generation = generation.clone();
+            let mine = generation.fetch_add(1, Ordering::SeqCst) + 1;
             tokio::spawn(async move {
+                tokio::time::sleep(SLIDER_DEBOUNCE).await;
+                if generation.load(Ordering::SeqCst) != mine {
+                    return;
+                }
                 if let Ok(proxy) = HeadsetProxy::new(&conn).await {
                     let _ = proxy.set_anc(enabled, level as u8).await;
                 }
