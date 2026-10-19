@@ -11,6 +11,10 @@ jobs:
   audit:
     name: Audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      checks: write
 
     steps:
       - uses: actions/checkout@v4
