@@ -257,3 +257,9 @@ Security audit runs weekly via `cargo audit`. Release builds for `x86_64` are pr
 - HID reports: 64 bytes, report ID `0x02`
 - Interface: HID interface 5, endpoint `0x84`
 - Protocol: custom Razer HID (not HID++ or OpenRazer-compatible)
+
+---
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).

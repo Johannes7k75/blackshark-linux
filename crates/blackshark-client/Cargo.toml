@@ -2,6 +2,7 @@
 name = "blackshark-client"
 version = "0.1.5"
 edition = "2021"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 zbus = { version = "4", default-features = false, features = ["tokio"] }
